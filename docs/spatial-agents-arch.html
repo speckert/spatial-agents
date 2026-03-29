@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<!--
+  spatial-agents-arch.html
+  Spatial Agents — Python Architecture Overview
+
+  Interactive single-page architecture document for interview presentation.
+  Covers system overview, three-tier deployment model, data pipeline flow,
+  Python package structure, H3 hexagonal tiling scheme, Foundation Models
+  evaluation pipeline, Pearl SCM causal reasoning chain, and FastAPI
+  endpoint surface with scalability path.
+
+  Version History:
+      0.1.0  2026-03-28  Initial architecture document — 8 navigable sections,
+                         responsive design, scroll-based nav highlighting
+      0.1.1  2026-03-28  Updated for Neural Magician host, fixed package tree
+                         and code block rendering (added white-space: pre)
+      0.1.2  2026-03-28  Updated to SpeckTech Inc., removed external company
+                         references and NITF lineage note
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spatial Agents — Python Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #0a0e17;
+    --bg-panel: #111827;
+    --bg-card: #1a2235;
+    --bg-card-hover: #1f2a40;
+    --border: #2a3650;
+    --border-accent: #3b82f6;
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --accent-blue: #3b82f6;
+    --accent-cyan: #06b6d4;
+    --accent-emerald: #10b981;
+    --accent-amber: #f59e0b;
+    --accent-rose: #f43f5e;
+    --accent-violet: #8b5cf6;
+    --glow-blue: rgba(59, 130, 246, 0.15);
+    --glow-cyan: rgba(6, 182, 212, 0.12);
+    --font-display: 'Instrument Serif', serif;
+    --font-body: 'DM Sans', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* --- Ambient Background --- */
+  body::before {
+    content: '';
+    position: fixed;
+    top: -40%; left: -20%;
+    width: 80vw; height: 80vh;
+    background: radial-gradient(ellipse, rgba(6, 182, 212, 0.06) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    bottom: -30%; right: -10%;
+    width: 60vw; height: 60vh;
+    background: radial-gradient(ellipse, rgba(59, 130, 246, 0.05) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* --- Navigation --- */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10, 14, 23, 0.85);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+  }
+  nav .nav-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    height: 56px;
+  }
+  nav .logo {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--accent-cyan);
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+    text-transform: uppercase;
+  }
+  nav .nav-links {
+    display: flex;
+    gap: 0.25rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  nav .nav-links::-webkit-scrollbar { display: none; }
+  nav .nav-links a {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-decoration: none;
+    padding: 0.4rem 0.75rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    transition: all 0.2s;
+    letter-spacing: 0.03em;
+  }
+  nav .nav-links a:hover, nav .nav-links a.active {
+    color: var(--text-primary);
+    background: var(--bg-card);
+  }
+
+  /* --- Sections --- */
+  section {
+    position: relative;
+    z-index: 1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 6rem 2rem 4rem;
+  }
+  section:first-of-type { padding-top: 8rem; }
+
+  .section-label {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--accent-cyan);
+    margin-bottom: 0.75rem;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-size: clamp(2.5rem, 5vw, 4rem);
+    font-weight: 400;
+    line-height: 1.1;
+    color: var(--text-primary);
+    margin-bottom: 1.5rem;
+  }
+  h1 em {
+    font-style: italic;
+    color: var(--accent-cyan);
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-size: clamp(1.8rem, 3vw, 2.4rem);
+    font-weight: 400;
+    line-height: 1.2;
+    color: var(--text-primary);
+    margin-bottom: 1.25rem;
+  }
+
+  h3 {
+    font-family: var(--font-body);
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+  }
+
+  .subtitle {
+    font-size: 1.15rem;
+    color: var(--text-secondary);
+    max-width: 680px;
+    line-height: 1.8;
+  }
+
+  p { color: var(--text-secondary); margin-bottom: 1rem; }
+
+  /* --- Dividers --- */
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border) 20%, var(--border) 80%, transparent);
+    margin: 1rem 0;
+  }
+
+  /* --- Architecture Diagram --- */
+  .arch-diagram {
+    margin: 3rem 0;
+    padding: 2.5rem;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow-x: auto;
+  }
+
+  .arch-tiers {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1.5rem;
+    min-width: 800px;
+  }
+
+  .tier {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    background: var(--bg-card);
+    position: relative;
+    transition: border-color 0.3s;
+  }
+  .tier:hover { border-color: var(--border-accent); }
+
+  .tier-badge {
+    position: absolute;
+    top: -10px;
+    left: 1.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    padding: 2px 10px;
+    border-radius: 3px;
+    font-weight: 500;
+  }
+  .tier-badge.free { background: var(--accent-emerald); color: #052e16; }
+  .tier-badge.purchase { background: var(--accent-blue); color: #0a1628; }
+  .tier-badge.subscription { background: var(--accent-amber); color: #1a0f00; }
+
+  .tier h3 {
+    margin-top: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .tier-desc {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+    line-height: 1.6;
+  }
+
+  .tier-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .stack-item {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    padding: 0.45rem 0.75rem;
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .stack-item .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot.python { background: var(--accent-amber); }
+  .dot.swift { background: var(--accent-rose); }
+  .dot.infra { background: var(--accent-cyan); }
+  .dot.fm { background: var(--accent-violet); }
+
+  /* --- Flow Diagram --- */
+  .flow-container {
+    margin: 3rem 0;
+    padding: 2.5rem;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow-x: auto;
+  }
+
+  .flow-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    min-width: 900px;
+    justify-content: center;
+  }
+
+  .flow-node {
+    padding: 1rem 1.25rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    text-align: center;
+    min-width: 140px;
+    transition: all 0.3s;
+    flex-shrink: 0;
+  }
+  .flow-node:hover {
+    border-color: var(--border-accent);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  }
+  .flow-node .node-label {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.3rem;
+  }
+  .flow-node .node-title {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+  }
+  .flow-node .node-detail {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+    font-family: var(--font-mono);
+  }
+  .flow-node.ingest .node-label { color: var(--accent-cyan); }
+  .flow-node.process .node-label { color: var(--accent-amber); }
+  .flow-node.index .node-label { color: var(--accent-emerald); }
+  .flow-node.eval .node-label { color: var(--accent-violet); }
+  .flow-node.serve .node-label { color: var(--accent-blue); }
+  .flow-node.client .node-label { color: var(--accent-rose); }
+
+  .flow-arrow {
+    font-size: 1.2rem;
+    color: var(--text-muted);
+    padding: 0 0.5rem;
+    flex-shrink: 0;
+    user-select: none;
+  }
+
+  /* --- Package Tree --- */
+  .package-tree {
+    margin: 2rem 0;
+    padding: 2rem;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 2;
+    color: var(--text-secondary);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .package-tree .dir {
+    color: var(--accent-cyan);
+    font-weight: 500;
+  }
+  .package-tree .file {
+    color: var(--text-secondary);
+  }
+  .package-tree .comment {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+  }
+
+  /* --- Cards Grid --- */
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.25rem;
+    margin: 2rem 0;
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.75rem;
+    transition: all 0.3s;
+  }
+  .card:hover {
+    border-color: var(--border-accent);
+    background: var(--bg-card-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+  .card-icon {
+    font-size: 1.4rem;
+    margin-bottom: 0.75rem;
+  }
+  .card h3 { font-size: 1rem; }
+  .card p {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    line-height: 1.7;
+  }
+
+  /* --- Code Block --- */
+  .code-block {
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.9;
+    color: var(--text-secondary);
+    overflow-x: auto;
+    position: relative;
+    white-space: pre;
+  }
+  .code-block .code-label {
+    position: absolute;
+    top: 0.5rem; right: 0.75rem;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    background: var(--bg-panel);
+    padding: 2px 8px;
+    border-radius: 3px;
+  }
+  .code-block .kw { color: var(--accent-blue); }
+  .code-block .fn { color: var(--accent-cyan); }
+  .code-block .str { color: var(--accent-emerald); }
+  .code-block .cm { color: var(--text-muted); }
+  .code-block .dec { color: var(--accent-amber); }
+  .code-block .typ { color: var(--accent-violet); }
+
+  /* --- Spec Table --- */
+  .spec-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.5rem 0;
+    font-size: 0.85rem;
+  }
+  .spec-table th {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    text-align: left;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    font-weight: 400;
+  }
+  .spec-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid rgba(42, 54, 80, 0.5);
+    color: var(--text-secondary);
+    vertical-align: top;
+  }
+  .spec-table tr:hover td { background: rgba(26, 34, 53, 0.5); }
+  .spec-table .mono {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--accent-cyan);
+  }
+
+  /* --- Tag --- */
+  .tag {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 3px 8px;
+    border-radius: 3px;
+    border: 1px solid;
+  }
+  .tag.python { border-color: var(--accent-amber); color: var(--accent-amber); }
+  .tag.swift { border-color: var(--accent-rose); color: var(--accent-rose); }
+  .tag.both { border-color: var(--accent-violet); color: var(--accent-violet); }
+  .tag.infra { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+
+  /* --- Causal Section --- */
+  .causal-flow {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 2rem 0;
+    padding: 2rem;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .causal-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1rem;
+    border-radius: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+  }
+  .causal-step-num {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--accent-violet);
+    min-width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--accent-violet);
+    border-radius: 4px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .causal-step-content h4 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+  }
+  .causal-step-content p {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.6;
+  }
+
+  /* --- Footer --- */
+  footer {
+    position: relative;
+    z-index: 1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 3rem 2rem 4rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  footer .left {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+  footer .right {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-align: right;
+    line-height: 1.8;
+  }
+
+  /* --- Responsive --- */
+  @media (max-width: 768px) {
+    .arch-tiers { grid-template-columns: 1fr; min-width: unset; }
+    .flow-row { flex-direction: column; min-width: unset; }
+    .flow-arrow { transform: rotate(90deg); padding: 0.25rem 0; }
+    .cards-grid { grid-template-columns: 1fr; }
+    nav .nav-inner { gap: 1rem; }
+    section { padding: 4rem 1.25rem 3rem; }
+  }
+
+  /* --- Animations --- */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .animate-in {
+    animation: fadeUp 0.6s ease-out both;
+  }
+  .delay-1 { animation-delay: 0.1s; }
+  .delay-2 { animation-delay: 0.2s; }
+  .delay-3 { animation-delay: 0.3s; }
+  .delay-4 { animation-delay: 0.4s; }
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav>
+  <div class="nav-inner">
+    <div class="logo">Spatial Agents</div>
+    <div class="nav-links">
+      <a href="#overview" class="active">Overview</a>
+      <a href="#tiers">Deployment Tiers</a>
+      <a href="#pipeline">Data Pipeline</a>
+      <a href="#package">Package Structure</a>
+      <a href="#tiling">H3 Tiling</a>
+      <a href="#fm-eval">FM Evaluation</a>
+      <a href="#causal">Causal Reasoning</a>
+      <a href="#api">API Surface</a>
+    </div>
+  </div>
+</nav>
+
+<!-- === OVERVIEW === -->
+<section id="overview">
+  <div class="section-label animate-in">System Architecture</div>
+  <h1 class="animate-in delay-1">Python Intelligence Layer for<br><em>Spatial Agents</em></h1>
+  <p class="subtitle animate-in delay-2">
+    A geospatial data pipeline that ingests real-time maritime and aviation feeds,
+    builds H3-indexed tile pyramids, evaluates prompts against Apple's on-device Foundation Model,
+    and serves intelligence to iOS, macOS, and visionOS clients.
+  </p>
+
+  <div class="divider" style="margin: 2.5rem 0;"></div>
+
+  <div class="cards-grid animate-in delay-3">
+    <div class="card">
+      <div class="card-icon">🛰</div>
+      <h3>Real-Time Geospatial Ingest</h3>
+      <p>AIS vessel tracking, ADS-B aircraft surveillance, and satellite metadata — parsed, validated, and spatially indexed on ingest.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">⬡</div>
+      <h3>H3 Hexagonal Tiling</h3>
+      <p>Uber's open-source H3 system for multi-resolution spatial indexing. Pre-computed tile pyramids served as static files from any web server.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🧠</div>
+      <h3>FM Prompt Evaluation</h3>
+      <p>Apple Foundation Models Python SDK on macOS for iterative prompt development, token budget analysis, and structured output validation against @Generable schemas.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">⇌</div>
+      <h3>Dual Deployment</h3>
+      <p>Single Python codebase, two deployment targets: local Mac server via FastAPI for power users, cloud (S3 + API) for phone-only subscribers.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔗</div>
+      <h3>Causal Graph Construction</h3>
+      <p>Structural causal models built from observed geospatial event patterns using Pearl's SCM framework — serialized for on-device FM narration.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔒</div>
+      <h3>Privacy by Design</h3>
+      <p>On-device FM inference keeps user queries private. The Python layer processes public data feeds — no user data ever touches the server.</p>
+    </div>
+  </div>
+</section>
+
+<!-- === DEPLOYMENT TIERS === -->
+<section id="tiers">
+  <div class="section-label">Business Architecture</div>
+  <h2>Three-Tier Deployment Model</h2>
+  <p class="subtitle">Matching infrastructure to user segments with appropriate monetization at each level.</p>
+
+  <div class="arch-diagram">
+    <div class="arch-tiers">
+      <!-- Free Tier -->
+      <div class="tier">
+        <div class="tier-badge free">Free</div>
+        <h3>Baseline Client</h3>
+        <p class="tier-desc">Map visualization, basic location awareness, live feed display. The funnel — drives App Store volume and discovery.</p>
+        <div class="tier-stack">
+          <div class="stack-item"><span class="dot swift"></span>SwiftUI map interface</div>
+          <div class="stack-item"><span class="dot swift"></span>Basic feed rendering</div>
+          <div class="stack-item"><span class="dot swift"></span>iOS / visionOS client</div>
+        </div>
+      </div>
+
+      <!-- Mac Local -->
+      <div class="tier">
+        <div class="tier-badge purchase">One-Time Purchase</div>
+        <h3>Mac Local Server</h3>
+        <p class="tier-desc">M1 Mini runs Python pipeline continuously. Serves processed intelligence to local iPhone &amp; Vision Pro clients via REST or files.</p>
+        <div class="tier-stack">
+          <div class="stack-item"><span class="dot python"></span>Python data pipeline</div>
+          <div class="stack-item"><span class="dot fm"></span>FM Python SDK evaluation</div>
+          <div class="stack-item"><span class="dot python"></span>FastAPI on port 8012</div>
+          <div class="stack-item"><span class="dot infra"></span>H3 tile generation</div>
+          <div class="stack-item"><span class="dot python"></span>Causal graph builder</div>
+          <div class="stack-item"><span class="dot swift"></span>macOS host app</div>
+        </div>
+      </div>
+
+      <!-- Cloud -->
+      <div class="tier">
+        <div class="tier-badge subscription">Subscription</div>
+        <h3>Cloud Service</h3>
+        <p class="tier-desc">Same Python pipeline on hosted infrastructure. S3 static tile delivery, FastAPI for dynamic queries. Phone-only users — no Mac required.</p>
+        <div class="tier-stack">
+          <div class="stack-item"><span class="dot python"></span>Identical Python pipeline</div>
+          <div class="stack-item"><span class="dot infra"></span>S3 tile storage</div>
+          <div class="stack-item"><span class="dot python"></span>FastAPI dynamic API</div>
+          <div class="stack-item"><span class="dot infra"></span>CDN edge delivery</div>
+          <div class="stack-item"><span class="dot swift"></span>StoreKit 2 subscription</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p style="font-size: 0.85rem; color: var(--text-muted); max-width: 720px;">
+    The client is agnostic to its data source — same payload format whether served by a local Mac or the cloud.
+    Base URL is the only configuration difference.
+    Transition from local to cloud is additive, not a migration.
+  </p>
+</section>
+
+<!-- === DATA PIPELINE === -->
+<section id="pipeline">
+  <div class="section-label">Data Flow</div>
+  <h2>Ingestion → Intelligence Pipeline</h2>
+  <p class="subtitle">Raw geospatial feeds transformed into context-budgeted, FM-ready payloads through six stages.</p>
+
+  <div class="flow-container">
+    <div class="flow-row">
+      <div class="flow-node ingest">
+        <div class="node-label">Ingest</div>
+        <div class="node-title">Feed Parsers</div>
+        <div class="node-detail">AIS NMEA · ADS-B</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node process">
+        <div class="node-label">Process</div>
+        <div class="node-title">ETL Layer</div>
+        <div class="node-detail">validate · clean · enrich</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node index">
+        <div class="node-label">Index</div>
+        <div class="node-title">H3 Tiling</div>
+        <div class="node-detail">res 3–7 · temporal bins</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node eval">
+        <div class="node-label">Evaluate</div>
+        <div class="node-title">FM Harness</div>
+        <div class="node-detail">token budget · schema</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node serve">
+        <div class="node-label">Serve</div>
+        <div class="node-title">FastAPI</div>
+        <div class="node-detail">REST · static tiles</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node client">
+        <div class="node-label">Client</div>
+        <div class="node-title">Swift App</div>
+        <div class="node-detail">on-device FM render</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cards-grid" style="margin-top: 2rem;">
+    <div class="card">
+      <h3>AIS Vessel Tracking</h3>
+      <p>~300K vessels globally. NMEA 0183 sentences decoded to position, heading, speed, MMSI, vessel type, destination. Position reports arrive at variable rates — Class A every 2–10 seconds under way, Class B every 30 seconds.</p>
+      <span class="tag python">Python</span>
+    </div>
+    <div class="card">
+      <h3>ADS-B Aircraft Surveillance</h3>
+      <p>~50–100K aircraft globally. Mode S extended squitter messages decoded to position, altitude, velocity, callsign, ICAO 24-bit address. 1090 MHz reception or API-sourced.</p>
+      <span class="tag python">Python</span>
+    </div>
+    <div class="card">
+      <h3>Satellite Metadata</h3>
+      <p>TLE orbital elements, overpass predictions, sensor specifications. Future integration with imagery catalogs — STAC-compatible metadata indexing.</p>
+      <span class="tag python">Python</span>
+    </div>
+  </div>
+</section>
+
+<!-- === PACKAGE STRUCTURE === -->
+<section id="package">
+  <div class="section-label">Implementation</div>
+  <h2>Python Package Structure</h2>
+  <p class="subtitle">Single codebase serving both local Mac and cloud deployment targets.</p>
+
+  <div class="package-tree">
+<span class="dir">spatial_agents/</span>
+├── <span class="dir">ingest/</span>                     <span class="comment"># Feed parsers and data acquisition</span>
+│   ├── <span class="file">ais_parser.py</span>            <span class="comment"># NMEA 0183 → structured vessel records</span>
+│   ├── <span class="file">adsb_parser.py</span>           <span class="comment"># Mode S → aircraft position/velocity</span>
+│   ├── <span class="file">tle_parser.py</span>            <span class="comment"># Two-line elements → orbital state</span>
+│   └── <span class="file">feed_manager.py</span>          <span class="comment"># Connection lifecycle, reconnection, health</span>
+│
+├── <span class="dir">spatial/</span>                     <span class="comment"># Geospatial indexing and tiling</span>
+│   ├── <span class="file">h3_indexer.py</span>            <span class="comment"># Position → H3 cell assignment, multi-res</span>
+│   ├── <span class="file">tile_builder.py</span>          <span class="comment"># H3 cells → static JSON tile files</span>
+│   ├── <span class="file">temporal_bins.py</span>         <span class="comment"># Time windowing: 1min / 5min / 1hr / 1day</span>
+│   └── <span class="file">geojson_export.py</span>        <span class="comment"># Tile content → GeoJSON for client rendering</span>
+│
+├── <span class="dir">intelligence/</span>                <span class="comment"># FM evaluation and prompt engineering</span>
+│   ├── <span class="file">prompt_templates.py</span>      <span class="comment"># Versioned prompt library for each data domain</span>
+│   ├── <span class="file">token_budget.py</span>          <span class="comment"># Token counting, context window management</span>
+│   ├── <span class="file">schema_validator.py</span>      <span class="comment"># Validate FM output against @Generable schemas</span>
+│   └── <span class="file">eval_harness.py</span>          <span class="comment"># Batch prompt evaluation, scoring, regression</span>
+│
+├── <span class="dir">causal/</span>                      <span class="comment"># Structural causal model construction</span>
+│   ├── <span class="file">event_detector.py</span>        <span class="comment"># Pattern detection across data streams</span>
+│   ├── <span class="file">dag_builder.py</span>           <span class="comment"># Pearl SCM DAG construction from observations</span>
+│   ├── <span class="file">intervention.py</span>          <span class="comment"># do-calculus intervention modeling</span>
+│   └── <span class="file">graph_serializer.py</span>      <span class="comment"># DAG → JSON for Swift client consumption</span>
+│
+├── <span class="dir">serving/</span>                     <span class="comment"># API and file serving</span>
+│   ├── <span class="file">app.py</span>                   <span class="comment"># FastAPI application — REST + static tiles</span>
+│   ├── <span class="file">routes_tiles.py</span>          <span class="comment"># GET /tiles/h3/{resolution}/{cell_id}.json</span>
+│   ├── <span class="file">routes_api.py</span>            <span class="comment"># GET /api/vessels, /api/aircraft, /api/causal</span>
+│   ├── <span class="file">routes_health.py</span>         <span class="comment"># GET /health — pipeline status, feed freshness</span>
+│   └── <span class="file">file_exporter.py</span>         <span class="comment"># Write payloads to shared filesystem (alt mode)</span>
+│
+├── <span class="dir">deploy/</span>                      <span class="comment"># Deployment configurations</span>
+│   ├── <span class="file">local_mac.py</span>             <span class="comment"># Neural Magician config, localhost:8012</span>
+│   ├── <span class="file">cloud_s3.py</span>              <span class="comment"># S3 tile sync, CDN invalidation</span>
+│   └── <span class="file">Dockerfile</span>               <span class="comment"># Cloud container build (ARM64)</span>
+│
+├── <span class="file">config.py</span>                    <span class="comment"># Environment-aware configuration</span>
+├── <span class="file">models.py</span>                    <span class="comment"># Pydantic data models (shared with Swift schemas)</span>
+└── <span class="file">main.py</span>                      <span class="comment"># Entry point — start pipeline + server</span>
+  </div>
+</section>
+
+<!-- === H3 TILING === -->
+<section id="tiling">
+  <div class="section-label">Spatial Indexing</div>
+  <h2>H3 Hexagonal Tile Pyramid</h2>
+  <p class="subtitle">Multi-resolution spatial index inspired by raster image pyramids — applied to vector event streams.</p>
+
+  <p style="font-size: 0.9rem; max-width: 720px;">
+    H3 (developed by Uber, Apache 2.0) assigns every point on Earth to a hexagonal cell at configurable resolutions.
+    Hexagons tile without gaps, have uniform adjacency (every cell has 6 neighbors), and nest across resolutions.
+    Tiles are served as static JSON files — no special infrastructure required.
+  </p>
+
+  <table class="spec-table">
+    <thead>
+      <tr>
+        <th>Resolution</th>
+        <th>Hex Edge Length</th>
+        <th>Use Case</th>
+        <th>Temporal Bin</th>
+        <th>Approx File Size</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mono">res 3</td>
+        <td>12.4 km</td>
+        <td>Global overview — vessel/aircraft density heatmap</td>
+        <td>1 day</td>
+        <td>~2 KB per cell</td>
+      </tr>
+      <tr>
+        <td class="mono">res 4</td>
+        <td>4.7 km</td>
+        <td>Regional view — shipping lane activity, flight corridors</td>
+        <td>1 hour</td>
+        <td>~5 KB per cell</td>
+      </tr>
+      <tr>
+        <td class="mono">res 5</td>
+        <td>1.8 km</td>
+        <td>Port/airport approach — individual track clusters</td>
+        <td>5 min</td>
+        <td>~10 KB per cell</td>
+      </tr>
+      <tr>
+        <td class="mono">res 6</td>
+        <td>0.68 km</td>
+        <td>Harbor/runway detail — individual vessel/aircraft tracks</td>
+        <td>1 min</td>
+        <td>~15 KB per cell</td>
+      </tr>
+      <tr>
+        <td class="mono">res 7</td>
+        <td>0.26 km</td>
+        <td>Berth/gate level — full kinematic state per entity</td>
+        <td>live stream</td>
+        <td>~20 KB per cell</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="code-block">
+    <div class="code-label">Python</div>
+<span class="kw">import</span> h3
+<span class="kw">from</span> spatial_agents.spatial <span class="kw">import</span> tile_builder
+
+<span class="cm"># Assign vessel position to H3 cells at multiple resolutions</span>
+lat, lng = <span class="str">37.8044</span>, <span class="str">-122.2712</span>  <span class="cm"># Oakland outer harbor</span>
+
+cells = {
+    res: h3.<span class="fn">latlng_to_cell</span>(lat, lng, res)
+    <span class="kw">for</span> res <span class="kw">in</span> <span class="fn">range</span>(<span class="str">3</span>, <span class="str">8</span>)
+}
+<span class="cm"># {3: '832830fffffffff', 4: '842831dffffffff', ...}</span>
+
+<span class="cm"># Generate tile file for a single cell</span>
+tile_builder.<span class="fn">build_tile</span>(
+    cell_id=cells[<span class="str">5</span>],
+    resolution=<span class="str">5</span>,
+    temporal_bin=<span class="str">"5min"</span>,
+    output_dir=<span class="str">"/tiles/h3"</span>
+)
+<span class="cm"># Writes: /tiles/h3/5/842831dffffffff.json</span>
+  </div>
+
+  <p style="font-size: 0.85rem; color: var(--text-muted); max-width: 720px; margin-top: 1.5rem;">
+    <strong style="color: var(--text-secondary);">Design note:</strong>
+    This multi-resolution tiling approach applies the same concept of level-of-detail hierarchies
+    used in raster image pyramids, adapted here for vector event streams rather than pixels.
+  </p>
+</section>
+
+<!-- === FM EVALUATION === -->
+<section id="fm-eval">
+  <div class="section-label">On-Device Intelligence</div>
+  <h2>Foundation Models Evaluation Pipeline</h2>
+  <p class="subtitle">The Python FM SDK (macOS) enables iterative prompt development, token budget analysis,
+    and structured output validation — before shipping prompts in the Swift app.</p>
+
+  <div class="cards-grid">
+    <div class="card">
+      <h3>Token Budget Management</h3>
+      <p>4,096-token context window. System prompt + tool schemas + data payload + response must all fit.
+         Python harness measures each component's token cost using <code style="color: var(--accent-cyan); font-family: var(--font-mono); font-size: 0.8rem;">tokenCount(for:)</code> and alerts when budgets are exceeded.</p>
+      <span class="tag python">Python SDK</span>
+    </div>
+    <div class="card">
+      <h3>Prompt Version Control</h3>
+      <p>Each data domain (maritime, aviation, orbital) has versioned prompt templates. The eval harness runs
+         regression suites when prompts change — ensuring the updated model in 26.4 still produces correct structured output.</p>
+      <span class="tag both">Python + Swift</span>
+    </div>
+    <div class="card">
+      <h3>Schema Validation</h3>
+      <p>FM guided generation outputs are validated against the same <code style="color: var(--accent-cyan); font-family: var(--font-mono); font-size: 0.8rem;">@Generable</code> struct definitions used in Swift.
+         Python-side validation catches schema drift before it reaches production clients.</p>
+      <span class="tag both">Python + Swift</span>
+    </div>
+    <div class="card">
+      <h3>Context Window Strategy</h3>
+      <p>Large geospatial datasets are compressed into context-budget payloads: statistical summaries,
+         top-N anomalies, and causal graph excerpts — not raw position lists. The FM narrates intelligence, not data.</p>
+      <span class="tag python">Python</span>
+    </div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-label">Python — FM Evaluation</div>
+<span class="kw">from</span> apple_fm <span class="kw">import</span> FoundationModel, Instructions, Prompt
+
+<span class="cm"># Initialize the on-device model (macOS only)</span>
+model = FoundationModel.<span class="fn">default</span>()
+
+<span class="cm"># Check available context budget</span>
+context_size = <span class="kw">await</span> model.<span class="fn">context_size</span>()  <span class="cm"># 4096</span>
+
+<span class="cm"># Measure token cost of our maritime intelligence prompt</span>
+instructions = Instructions(
+    <span class="str">"You are a maritime intelligence analyst. Given vessel activity data "</span>
+    <span class="str">"for an H3 cell, generate a structured situation report."</span>
+)
+inst_tokens = <span class="kw">await</span> model.<span class="fn">token_count</span>(instructions)
+<span class="cm"># → 28 tokens (0.7% of budget)</span>
+
+<span class="cm"># Measure a data payload</span>
+payload = Prompt(vessel_summary_json)
+payload_tokens = <span class="kw">await</span> model.<span class="fn">token_count</span>(payload)
+<span class="cm"># → 340 tokens (8.3% of budget)</span>
+
+remaining = context_size - inst_tokens - payload_tokens
+<span class="cm"># → 3728 tokens available for tool schemas + response</span>
+  </div>
+</section>
+
+<!-- === CAUSAL REASONING === -->
+<section id="causal">
+  <div class="section-label">Causal Intelligence</div>
+  <h2>Structural Causal Models</h2>
+  <p class="subtitle">
+    Pearl's SCM framework applied to geospatial event streams.
+    The Python layer builds causal graphs from observed patterns;
+    the on-device FM narrates them into actionable intelligence.
+  </p>
+
+  <p style="font-size: 0.9rem; max-width: 720px; margin-bottom: 0.5rem;">
+    <em style="font-family: var(--font-display); color: var(--accent-violet);">Know the How, Show the Why</em>
+    — moving beyond correlation dashboards to causal reasoning about <em>why</em> geospatial patterns emerge.
+  </p>
+
+  <div class="causal-flow">
+    <div class="causal-step">
+      <div class="causal-step-num">1</div>
+      <div class="causal-step-content">
+        <h4>Event Detection</h4>
+        <p>Identify behavioral patterns across data streams — vessel loitering, flight diversions, correlated AIS/ADS-B anomalies, dark vessel gaps.</p>
+      </div>
+    </div>
+    <div class="causal-step">
+      <div class="causal-step-num">2</div>
+      <div class="causal-step-content">
+        <h4>DAG Construction</h4>
+        <p>Build directed acyclic graphs encoding causal relationships: weather → route deviation → port congestion → vessel loitering. Nodes are observable events; edges encode causal direction.</p>
+      </div>
+    </div>
+    <div class="causal-step">
+      <div class="causal-step-num">3</div>
+      <div class="causal-step-content">
+        <h4>Intervention Modeling</h4>
+        <p>Pearl's do-calculus: "What would happen to port congestion if we <em>do(reroute_traffic)</em>?" Counterfactual reasoning over the causal graph without running real-world experiments.</p>
+      </div>
+    </div>
+    <div class="causal-step">
+      <div class="causal-step-num">4</div>
+      <div class="causal-step-content">
+        <h4>Graph Serialization</h4>
+        <p>DAG exported as JSON — nodes, edges, intervention results, confidence scores. Compact enough to fit within the FM's context window alongside the prompt template.</p>
+      </div>
+    </div>
+    <div class="causal-step">
+      <div class="causal-step-num">5</div>
+      <div class="causal-step-content">
+        <h4>On-Device Narration</h4>
+        <p>The Swift client passes the causal graph to the on-device FM, which generates human-readable intelligence: "Vessel loitering near Oakland increased 40% because storm-driven route changes created a 12-hour backlog."</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- === API SURFACE === -->
+<section id="api">
+  <div class="section-label">Serving Layer</div>
+  <h2>FastAPI Endpoints</h2>
+  <p class="subtitle">Single FastAPI process on port 8012 handles both static tile delivery and dynamic intelligence queries.</p>
+
+  <table class="spec-table">
+    <thead>
+      <tr>
+        <th>Method</th>
+        <th>Endpoint</th>
+        <th>Description</th>
+        <th>Response</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mono">GET</td>
+        <td class="mono">/tiles/h3/{res}/{cell}.json</td>
+        <td>Static H3 tile — pre-computed vessel/aircraft data</td>
+        <td>GeoJSON</td>
+      </tr>
+      <tr>
+        <td class="mono">GET</td>
+        <td class="mono">/api/vessels/{h3_cell}</td>
+        <td>Live vessel positions within an H3 cell</td>
+        <td>JSON array</td>
+      </tr>
+      <tr>
+        <td class="mono">GET</td>
+        <td class="mono">/api/aircraft/{h3_cell}</td>
+        <td>Live aircraft positions within an H3 cell</td>
+        <td>JSON array</td>
+      </tr>
+      <tr>
+        <td class="mono">GET</td>
+        <td class="mono">/api/intelligence/{h3_cell}</td>
+        <td>FM-evaluated situation report for a cell</td>
+        <td>Structured JSON</td>
+      </tr>
+      <tr>
+        <td class="mono">GET</td>
+        <td class="mono">/api/causal/{h3_cell}</td>
+        <td>Causal graph for observed events in a cell</td>
+        <td>DAG JSON</td>
+      </tr>
+      <tr>
+        <td class="mono">GET</td>
+        <td class="mono">/api/budget</td>
+        <td>Current token budget allocation across prompts</td>
+        <td>Token counts</td>
+      </tr>
+      <tr>
+        <td class="mono">GET</td>
+        <td class="mono">/health</td>
+        <td>Pipeline status — feed freshness, tile age, errors</td>
+        <td>Status JSON</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="code-block">
+    <div class="code-label">Python — FastAPI server</div>
+<span class="kw">from</span> fastapi <span class="kw">import</span> FastAPI
+<span class="kw">from</span> fastapi.staticfiles <span class="kw">import</span> StaticFiles
+<span class="kw">from</span> spatial_agents.serving <span class="kw">import</span> routes_tiles, routes_api, routes_health
+
+app = FastAPI(title=<span class="str">"Spatial Agents Intelligence Server"</span>)
+
+<span class="cm"># Static H3 tile serving — no special infrastructure needed</span>
+app.<span class="fn">mount</span>(<span class="str">"/tiles"</span>, StaticFiles(directory=<span class="str">"/data/tiles"</span>), name=<span class="str">"tiles"</span>)
+
+<span class="cm"># Dynamic API routes</span>
+app.<span class="fn">include_router</span>(routes_api.router, prefix=<span class="str">"/api"</span>)
+app.<span class="fn">include_router</span>(routes_health.router)
+
+<span class="cm"># Entry point: uvicorn spatial_agents.serving.app:app --host 0.0.0.0 --port 8012</span>
+  </div>
+
+  <div class="divider" style="margin: 2.5rem 0;"></div>
+
+  <h3 style="margin-bottom: 1rem;">Scalability Path</h3>
+  <div class="cards-grid">
+    <div class="card">
+      <h3>Phase 1 — Neural Magician</h3>
+      <p>M1 Mac Mini (16 GB), macOS Tahoe 26.4. Apache + Certbot on ports 80/443, FastAPI on localhost:8012 behind reverse proxy. Handles thousands of concurrent clients. ~7W idle draw, runs headless indefinitely.</p>
+      <span class="tag infra">Current Target</span>
+    </div>
+    <div class="card">
+      <h3>Phase 2 — S3 Mirror</h3>
+      <p>Pipeline writes tiles to local disk <em>and</em> syncs to S3 bucket. Static tile requests shift to S3/CDN for geographic distribution and uptime guarantees. API stays on the Mini.</p>
+      <span class="tag infra">When Needed</span>
+    </div>
+    <div class="card">
+      <h3>Phase 3 — Full Cloud</h3>
+      <p>Pipeline containerized (ARM64). Deployed to cloud compute. S3 for tiles, managed API gateway. Triggered when subscriber count demands reliability SLAs, not by data volume.</p>
+      <span class="tag infra">Scale Trigger</span>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="left">
+    Spatial Agents · SpeckTech Inc.<br>
+    Python Architecture Overview · March 2026<br>
+    Host: Neural Magician (M1 16GB / Tahoe 26.4)
+  </div>
+  <div class="right">
+    Geospatial Data Engineering
+  </div>
+</footer>
+
+<!-- Scroll-based nav highlighting -->
+<script>
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('nav .nav-links a');
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navLinks.forEach(link => link.classList.remove('active'));
+        const active = document.querySelector(`nav a[href="#${entry.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-30% 0px -60% 0px' });
+
+  sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

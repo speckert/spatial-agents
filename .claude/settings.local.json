@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python scripts/demo.py 2>&1)",
+      "Bash(.venv/bin/python scripts/demo.py --serve 2>&1)",
+      "Bash(curl -s http://127.0.0.1:8012/health)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s http://127.0.0.1:8012/api/budget)",
+      "Bash(curl -s \"http://127.0.0.1:8012/api/vessels/862830817ffffff\")"
+    ]
+  }
+}

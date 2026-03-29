@@ -1,0 +1,45 @@
+# ===========================================================================
+# .gitignore — Spatial Agents Python Intelligence Layer
+#
+# Version History:
+#     0.1.0  2026-03-28  Initial .gitignore for Python/macOS development
+# ===========================================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Data (generated, not tracked)
+/data/
+*.json.tmp
+
+# Secrets
+.env
+*.pem
+*.key

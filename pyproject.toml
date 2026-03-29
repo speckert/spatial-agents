@@ -1,0 +1,68 @@
+# ===========================================================================
+# Spatial Agents — Python Intelligence Layer
+# ===========================================================================
+#
+# Project configuration for the geospatial intelligence pipeline.
+# Defines dependencies, optional extras (cloud, fm, dev), build system,
+# and tool configurations for ruff and mypy.
+#
+# Version History:
+#     0.1.0  2026-03-28  Initial project configuration with FastAPI, H3,
+#                        pyais, httpx, NetworkX, numpy, orjson, Pydantic
+#     0.1.1  2026-03-28  Updated author and license to SpeckTech Inc.,
+#                        removed external references, added contact email
+# ===========================================================================
+
+[project]
+name = "spatial-agents"
+version = "0.1.0"
+description = "Geospatial intelligence pipeline for Spatial Agents — AIS, ADS-B, H3 tiling, FM evaluation, causal reasoning"
+requires-python = ">=3.11"
+license = { text = "Proprietary — SpeckTech Inc." }
+authors = [
+    { name = "Glen", email = "speckert@specktech.com" }
+]
+
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "h3>=4.1.0",
+    "pydantic>=2.10.0",
+    "geojson>=3.1.0",
+    "pyais>=2.8.0",
+    "httpx>=0.28.0",
+    "networkx>=3.4",
+    "numpy>=2.1",
+    "orjson>=3.10.0",
+    "aiofiles>=24.1.0",
+    "apscheduler>=3.10.0",
+]
+
+[project.optional-dependencies]
+cloud = [
+    "boto3>=1.35.0",
+]
+fm = [
+    "apple-fm-sdk>=0.1.0",
+]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8.0",
+    "mypy>=1.13",
+]
+
+[project.scripts]
+spatial-agents = "spatial_agents.main:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
