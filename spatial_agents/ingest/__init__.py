@@ -10,6 +10,7 @@ Version History:
 
 from spatial_agents.ingest.ais_parser import AISParser
 from spatial_agents.ingest.adsb_parser import ADSBParser
+from spatial_agents.ingest.aisstream_client import AISStreamClient
 from spatial_agents.ingest.feed_manager import FeedManager
 
-__all__ = ["AISParser", "ADSBParser", "FeedManager"]
+__all__ = ["AISParser", "ADSBParser", "AISStreamClient", "FeedManager"]

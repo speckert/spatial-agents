@@ -379,6 +379,9 @@ async def run_demo(serve: bool = False, verbose: bool = False) -> None:
         set_api_feeds(manager)
         set_health_feeds(manager)
 
+        # Start live feeds (AIS WebSocket if key is set, ADS-B polling)
+        await manager.start()
+
         import uvicorn
         config = uvicorn.Config(
             "spatial_agents.serving.app:app",
@@ -387,7 +390,10 @@ async def run_demo(serve: bool = False, verbose: bool = False) -> None:
             log_level="info",
         )
         server = uvicorn.Server(config)
-        await server.serve()
+        try:
+            await server.serve()
+        finally:
+            await manager.stop()
 
 
 def main() -> None:

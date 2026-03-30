@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import os
 from enum import Enum
+
+from dotenv import load_dotenv
+load_dotenv()
 from pathlib import Path
 from pydantic import BaseModel, Field
 

@@ -20,6 +20,7 @@ from typing import AsyncIterator, Callable
 from spatial_agents.config import config
 from spatial_agents.ingest.adsb_parser import ADSBParser, BAY_AREA_BBOX
 from spatial_agents.ingest.ais_parser import AISParser
+from spatial_agents.ingest.aisstream_client import AISStreamClient
 from spatial_agents.models import AircraftRecord, FeedStatus, VesselRecord
 
 logger = logging.getLogger(__name__)
@@ -47,9 +48,11 @@ class FeedManager:
         self,
         ais_parser: AISParser | None = None,
         adsb_parser: ADSBParser | None = None,
+        aisstream_client: AISStreamClient | None = None,
     ) -> None:
         self._ais_parser = ais_parser or AISParser()
         self._adsb_parser = adsb_parser or ADSBParser()
+        self._aisstream = aisstream_client or AISStreamClient()
 
         # Record buffers — bounded deques to prevent memory growth
         self._vessel_buffer: deque[VesselRecord] = deque(maxlen=50_000)
@@ -91,9 +94,17 @@ class FeedManager:
 
         self._tasks = [
             asyncio.create_task(self._adsb_poll_loop(), name="adsb_poll"),
-            # AIS WebSocket task would go here:
-            # asyncio.create_task(self._ais_websocket_loop(), name="ais_ws"),
         ]
+        # Start AIS WebSocket if API key is configured
+        if config.feeds.ais_api_key:
+            self._tasks.append(
+                asyncio.create_task(self._ais_websocket_loop(), name="ais_ws")
+            )
+            logger.info("AIS WebSocket feed enabled")
+        else:
+            logger.warning(
+                "AIS WebSocket disabled — set SPATIAL_AGENTS_AIS_KEY to enable"
+            )
         logger.info("Feed manager started — %d active feeds", len(self._tasks))
 
     async def stop(self) -> None:
@@ -180,39 +191,40 @@ class FeedManager:
 
             await asyncio.sleep(interval)
 
-    # --- AIS WebSocket Loop (placeholder for live integration) ---
+    # --- AIS WebSocket Loop ---
 
     async def _ais_websocket_loop(self) -> None:
         """
-        Connect to AIS WebSocket stream and process messages.
-
-        This is the production integration point for services like
-        aisstream.io or a local AIS receiver connected via serial/TCP.
+        Connect to aisstream.io WebSocket and ingest vessel position reports.
+        Automatically reconnects on failure with exponential backoff.
         """
-        logger.info("AIS WebSocket loop started — endpoint: %s", config.feeds.ais_endpoint)
+        backoff = 5
 
         while self._running:
             try:
-                # Production: connect to WebSocket, decode NMEA, yield records
-                # For now, this is a placeholder that would be replaced with:
-                #
-                # async with websockets.connect(config.feeds.ais_endpoint) as ws:
-                #     async for message in ws:
-                #         records = self._ais_parser.parse_nmea_line(message)
-                #         for record in records:
-                #             self._ais_msg_count += 1
-                #             self._vessel_buffer.append(record)
-                #             self._vessel_latest[record.mmsi] = record
-                #             self._ais_last_msg = datetime.now(timezone.utc)
+                logger.info("AIS WebSocket connecting...")
+                self._ais_error = None
 
-                await asyncio.sleep(60)  # Placeholder
+                async for record in self._aisstream.stream():
+                    if not self._running:
+                        break
+                    self._ais_msg_count += 1
+                    self._vessel_buffer.append(record)
+                    self._vessel_latest[record.mmsi] = record
+                    self._ais_last_msg = datetime.now(timezone.utc)
+                    for cb in self._vessel_callbacks:
+                        cb(record)
+
+                    # Reset backoff on successful data
+                    backoff = 5
 
             except asyncio.CancelledError:
                 break
             except Exception as exc:
                 self._ais_error = str(exc)
-                logger.error("AIS WebSocket error: %s — reconnecting in 10s", exc)
-                await asyncio.sleep(10)
+                logger.error("AIS WebSocket error: %s — reconnecting in %ds", exc, backoff)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 120)  # Cap at 2 minutes
 
     def ingest_ais_batch(self, nmea_lines: list[str]) -> list[VesselRecord]:
         """
