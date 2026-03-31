@@ -5,6 +5,8 @@ Version History:
     0.1.0  2026-03-28  Initial configuration structure
     0.1.1  2026-03-28  Changed default bind from 0.0.0.0 to 127.0.0.1 for
                        Apache reverse proxy deployment on Neural Magician
+    0.2.0  2026-03-30  Local_mac data dir defaults to project-relative ./data,
+                       ADS-B poll interval to 60s, added OpenSky auth credentials
 """
 
 from __future__ import annotations
@@ -38,8 +40,16 @@ class FeedConfig(BaseModel):
         default="https://opensky-network.org/api",
         description="ADS-B REST API endpoint (OpenSky Network)",
     )
+    adsb_username: str = Field(
+        default="",
+        description="OpenSky Network username (free account for better rate limits)",
+    )
+    adsb_password: str = Field(
+        default="",
+        description="OpenSky Network password",
+    )
     adsb_poll_interval_sec: int = Field(
-        default=30,
+        default=60,
         description="Seconds between ADS-B position polls",
     )
 
@@ -142,6 +152,8 @@ class SpatialAgentsConfig(BaseModel):
             mode=mode,
             feeds=FeedConfig(
                 ais_api_key=os.getenv("SPATIAL_AGENTS_AIS_KEY", ""),
+                adsb_username=os.getenv("SPATIAL_AGENTS_ADSB_USER", ""),
+                adsb_password=os.getenv("SPATIAL_AGENTS_ADSB_PASS", ""),
             ),
             tiling=TilingConfig(tile_output_dir=tile_dir),
             serving=ServingConfig(

@@ -22,7 +22,6 @@
   body { background: var(--bg-deep); font-family: var(--font-body); }
   #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
 
-  /* --- Header bar --- */
   .header {
     position: absolute; top: 0; left: 0; right: 0; z-index: 10;
     background: var(--bg-panel); backdrop-filter: blur(12px);
@@ -37,14 +36,12 @@
     text-decoration: none;
   }
   .header-title:hover { text-decoration: underline; }
-  .header-subtitle {
-    font-size: 0.8rem; color: var(--text-muted);
-  }
+  .header-subtitle { font-size: 0.8rem; color: var(--text-muted); }
   .header-right { display: flex; align-items: center; gap: 1rem; }
-  .vessel-count {
+  .entity-count {
     font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-secondary);
   }
-  .vessel-count strong { color: var(--accent-cyan); }
+  .entity-count strong { color: var(--accent-cyan); }
   .nav-link {
     font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.05em;
     padding: 0.35rem 0.8rem; border-radius: 5px; border: 1px solid var(--border);
@@ -61,7 +58,6 @@
     50% { opacity: 0.4; }
   }
 
-  /* --- Info panel (click a vessel) --- */
   .info-panel {
     position: absolute; bottom: 1.5rem; left: 1.25rem; z-index: 10;
     background: var(--bg-panel); backdrop-filter: blur(12px);
@@ -72,8 +68,14 @@
   .info-panel.visible { display: block; }
   .info-panel h3 {
     font-size: 0.95rem; font-weight: 600; color: var(--text-primary);
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.1rem;
   }
+  .info-panel .info-kind {
+    font-family: var(--font-mono); font-size: 0.65rem; text-transform: uppercase;
+    letter-spacing: 0.08em; margin-bottom: 0.5rem;
+  }
+  .info-kind.vessel { color: #06b6d4; }
+  .info-kind.aircraft { color: #f59e0b; }
   .info-row {
     display: flex; justify-content: space-between; padding: 0.25rem 0;
     font-size: 0.8rem;
@@ -87,19 +89,26 @@
   }
   .info-close:hover { color: var(--text-primary); }
 
-  /* --- Legend --- */
   .legend {
     position: absolute; bottom: 1.5rem; right: 1.25rem; z-index: 10;
     background: var(--bg-panel); backdrop-filter: blur(12px);
     border: 1px solid var(--border); border-radius: 8px;
     padding: 0.75rem 1rem; font-size: 0.7rem;
   }
+  .legend-section {
+    font-family: var(--font-mono); font-size: 0.6rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--accent-cyan); margin-top: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+  .legend-section:first-child { margin-top: 0; }
   .legend-item {
-    display: flex; align-items: center; gap: 0.5rem; padding: 0.2rem 0;
+    display: flex; align-items: center; gap: 0.5rem; padding: 0.15rem 0;
     color: var(--text-secondary);
   }
-  .legend-dot {
-    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .legend-plane {
+    width: 10px; height: 10px; flex-shrink: 0; text-align: center;
+    font-size: 10px; line-height: 10px;
   }
 
   @media (max-width: 768px) {
@@ -115,10 +124,10 @@
 <div class="header">
   <div class="header-left">
     <a href="index.html" class="header-title">Spatial Agents</a>
-    <span class="header-subtitle">San Francisco Bay — Live Vessels</span>
+    <span class="header-subtitle">San Francisco Bay — Live</span>
   </div>
   <div class="header-right">
-    <span class="vessel-count"><span class="status-dot"></span><strong id="count">—</strong> vessels</span>
+    <span class="entity-count"><span class="status-dot"></span><strong id="vessel-count">—</strong> vessels, <strong id="aircraft-count">—</strong> aircraft</span>
     <a href="dag.html" class="nav-link">Causal DAG</a>
     <a href="index.html" class="nav-link">Overview</a>
   </div>
@@ -127,22 +136,21 @@
 <div class="info-panel" id="info">
   <button class="info-close" onclick="document.getElementById('info').classList.remove('visible')">&times;</button>
   <h3 id="info-name">—</h3>
-  <div class="info-row"><span class="info-label">MMSI</span><span class="info-value" id="info-mmsi">—</span></div>
-  <div class="info-row"><span class="info-label">Type</span><span class="info-value" id="info-type">—</span></div>
-  <div class="info-row"><span class="info-label">Speed</span><span class="info-value" id="info-speed">—</span></div>
-  <div class="info-row"><span class="info-label">Heading</span><span class="info-value" id="info-heading">—</span></div>
-  <div class="info-row"><span class="info-label">Course</span><span class="info-value" id="info-course">—</span></div>
-  <div class="info-row"><span class="info-label">Destination</span><span class="info-value" id="info-dest">—</span></div>
-  <div class="info-row"><span class="info-label">Updated</span><span class="info-value" id="info-time">—</span></div>
+  <div class="info-kind" id="info-kind"></div>
+  <div id="info-rows"></div>
 </div>
 
 <div class="legend">
+  <div class="legend-section">Vessels</div>
   <div class="legend-item"><div class="legend-dot" style="background:#f43f5e"></div>Tanker</div>
   <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div>Cargo</div>
   <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div>Passenger</div>
   <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>Tug</div>
   <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div>Fishing</div>
   <div class="legend-item"><div class="legend-dot" style="background:#06b6d4"></div>Other</div>
+  <div class="legend-section">Aircraft</div>
+  <div class="legend-item"><div class="legend-plane">&#x2708;</div>Airborne</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f59e0b;width:8px;height:8px"></div>On Ground</div>
 </div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -154,19 +162,24 @@ const H3_CELL = '832830fffffffff';
 const RESOLUTION = 3;
 const REFRESH_MS = 30000;
 
-const TYPE_COLORS = {
-  tanker:      '#f43f5e',
-  cargo:       '#3b82f6',
-  passenger:   '#10b981',
-  tug:         '#f59e0b',
-  fishing:     '#8b5cf6',
-  military:    '#ef4444',
-  sailing:     '#a78bfa',
-  pleasure:    '#fb923c',
-  high_speed:  '#22d3ee',
-  other:       '#06b6d4',
-  unknown:     '#64748b',
+const VESSEL_COLORS = {
+  tanker: '#f43f5e', cargo: '#3b82f6', passenger: '#10b981',
+  tug: '#f59e0b', fishing: '#8b5cf6', military: '#ef4444',
+  sailing: '#a78bfa', pleasure: '#fb923c', high_speed: '#22d3ee',
+  other: '#06b6d4', unknown: '#64748b',
 };
+
+const AIRCRAFT_COLOR_AIRBORNE = '#f59e0b';
+const AIRCRAFT_COLOR_GROUND = '#78716c';
+
+// --- Plane icon as SVG data URL ---
+function makePlaneIcon() {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+    <path d="M16 2 L19 12 L28 14 L19 16 L16 30 L13 16 L4 14 L13 12 Z"
+          fill="#f59e0b" stroke="#0a0e17" stroke-width="1.5"/>
+  </svg>`;
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
 
 const map = new maplibregl.Map({
   container: 'map',
@@ -181,11 +194,8 @@ const map = new maplibregl.Map({
       }
     },
     layers: [{
-      id: 'carto-dark',
-      type: 'raster',
-      source: 'carto-dark',
-      minzoom: 0,
-      maxzoom: 19,
+      id: 'carto-dark', type: 'raster', source: 'carto-dark',
+      minzoom: 0, maxzoom: 19,
     }],
   },
   center: [-122.35, 37.80],
@@ -199,12 +209,10 @@ map.addControl(new maplibregl.NavigationControl(), 'top-right');
 function vesselToFeature(v) {
   return {
     type: 'Feature',
-    geometry: {
-      type: 'Point',
-      coordinates: [v.position.lng, v.position.lat],
-    },
+    geometry: { type: 'Point', coordinates: [v.position.lng, v.position.lat] },
     properties: {
-      mmsi: v.mmsi,
+      kind: 'vessel',
+      id: v.mmsi,
       name: v.name || 'Unknown',
       vessel_type: v.vessel_type || 'unknown',
       speed: v.speed_knots,
@@ -212,119 +220,218 @@ function vesselToFeature(v) {
       course: v.course_deg,
       destination: v.destination || '',
       timestamp: v.position.timestamp,
-      color: TYPE_COLORS[v.vessel_type] || TYPE_COLORS.unknown,
-      rotation: (v.heading_deg != null && v.heading_deg !== 511) ? v.heading_deg : (v.course_deg || 0),
+      color: VESSEL_COLORS[v.vessel_type] || VESSEL_COLORS.unknown,
     },
   };
 }
 
-async function fetchVessels() {
+function aircraftToFeature(a) {
+  const hdg = a.heading_deg != null ? a.heading_deg : 0;
+  return {
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [a.position.lng, a.position.lat] },
+    properties: {
+      kind: 'aircraft',
+      id: a.icao24,
+      name: a.callsign || a.icao24,
+      callsign: a.callsign || '',
+      icao24: a.icao24,
+      category: a.category || 'unknown',
+      speed: a.velocity_knots,
+      heading: hdg,
+      altitude: a.position.alt_m != null ? Math.round(a.position.alt_m * 3.28084) : null,
+      vertical_rate: a.vertical_rate_fpm,
+      on_ground: a.on_ground,
+      squawk: a.squawk || '',
+      timestamp: a.position.timestamp,
+      rotation: hdg,
+    },
+  };
+}
+
+async function fetchData() {
   try {
-    const res = await fetch(`${API}/api/vessels/${H3_CELL}?resolution=${RESOLUTION}`);
-    const data = await res.json();
-    document.getElementById('count').textContent = data.count;
-    return data.vessels.map(vesselToFeature);
+    const [vRes, aRes] = await Promise.all([
+      fetch(`${API}/api/vessels/${H3_CELL}?resolution=${RESOLUTION}`),
+      fetch(`${API}/api/aircraft/${H3_CELL}?resolution=${RESOLUTION}`),
+    ]);
+    const vData = await vRes.json();
+    const aData = await aRes.json();
+    document.getElementById('vessel-count').textContent = vData.count;
+    document.getElementById('aircraft-count').textContent = aData.count;
+    return {
+      vessels: vData.vessels.map(vesselToFeature),
+      aircraft: aData.aircraft.map(aircraftToFeature),
+    };
   } catch (e) {
     console.error('Fetch error:', e);
     return null;
   }
 }
 
-function updateMap(features) {
-  if (!features) return;
-  const geojson = { type: 'FeatureCollection', features };
-  const src = map.getSource('vessels');
-  if (src) {
-    src.setData(geojson);
-  } else {
-    map.addSource('vessels', { type: 'geojson', data: geojson });
+function showVesselInfo(p) {
+  document.getElementById('info-name').textContent = p.name;
+  const kind = document.getElementById('info-kind');
+  kind.textContent = 'Vessel';
+  kind.className = 'info-kind vessel';
+  const rows = [
+    ['MMSI', p.id],
+    ['Type', p.vessel_type],
+    ['Speed', p.speed != null ? Number(p.speed).toFixed(1) + ' kn' : '—'],
+    ['Heading', (p.heading != null && p.heading !== 511) ? Number(p.heading).toFixed(0) + '\u00B0' : '—'],
+    ['Course', p.course != null ? Number(p.course).toFixed(0) + '\u00B0' : '—'],
+    ['Destination', p.destination || '—'],
+    ['Updated', p.timestamp ? new Date(p.timestamp).toLocaleTimeString() : '—'],
+  ];
+  document.getElementById('info-rows').innerHTML = rows.map(([l, v]) =>
+    `<div class="info-row"><span class="info-label">${l}</span><span class="info-value">${v}</span></div>`
+  ).join('');
+  document.getElementById('info').classList.add('visible');
+}
 
-    // Glow layer
-    map.addLayer({
-      id: 'vessel-glow',
-      type: 'circle',
-      source: 'vessels',
-      paint: {
-        'circle-radius': 12,
-        'circle-color': ['get', 'color'],
-        'circle-opacity': 0.15,
-        'circle-blur': 1,
-      },
-    });
+function showAircraftInfo(p) {
+  document.getElementById('info-name').textContent = p.callsign || p.icao24;
+  const kind = document.getElementById('info-kind');
+  kind.textContent = 'Aircraft';
+  kind.className = 'info-kind aircraft';
+  const alt = p.altitude != null ? Number(p.altitude).toLocaleString() + ' ft' : '—';
+  const vr = p.vertical_rate != null ? (Number(p.vertical_rate) >= 0 ? '+' : '') + Number(p.vertical_rate).toFixed(0) + ' fpm' : '—';
+  const rows = [
+    ['ICAO24', p.icao24],
+    ['Callsign', p.callsign || '—'],
+    ['Category', p.category],
+    ['Speed', p.speed != null ? Number(p.speed).toFixed(0) + ' kn' : '—'],
+    ['Altitude', alt],
+    ['Vert Rate', vr],
+    ['Heading', p.heading != null ? Number(p.heading).toFixed(0) + '\u00B0' : '—'],
+    ['Squawk', p.squawk || '—'],
+    ['On Ground', p.on_ground === true || p.on_ground === 'true' ? 'Yes' : 'No'],
+    ['Updated', p.timestamp ? new Date(p.timestamp).toLocaleTimeString() : '—'],
+  ];
+  document.getElementById('info-rows').innerHTML = rows.map(([l, v]) =>
+    `<div class="info-row"><span class="info-label">${l}</span><span class="info-value">${v}</span></div>`
+  ).join('');
+  document.getElementById('info').classList.add('visible');
+}
 
-    // Main dot
-    map.addLayer({
-      id: 'vessel-dots',
-      type: 'circle',
-      source: 'vessels',
-      paint: {
-        'circle-radius': [
-          'interpolate', ['linear'], ['zoom'],
-          8, 3,
-          12, 5,
-          16, 8,
-        ],
-        'circle-color': ['get', 'color'],
-        'circle-opacity': 0.9,
-        'circle-stroke-width': 1,
-        'circle-stroke-color': 'rgba(255,255,255,0.3)',
-      },
-    });
+let layersInitialized = false;
 
-    // Labels at higher zoom
+function updateMap(data) {
+  if (!data) return;
+
+  // Vessels
+  const vesselGeoJSON = { type: 'FeatureCollection', features: data.vessels };
+  const vSrc = map.getSource('vessels');
+  if (vSrc) { vSrc.setData(vesselGeoJSON); }
+  else { map.addSource('vessels', { type: 'geojson', data: vesselGeoJSON }); }
+
+  // Aircraft
+  const aircraftGeoJSON = { type: 'FeatureCollection', features: data.aircraft };
+  const aSrc = map.getSource('aircraft');
+  if (aSrc) { aSrc.setData(aircraftGeoJSON); }
+  else { map.addSource('aircraft', { type: 'geojson', data: aircraftGeoJSON }); }
+
+  if (layersInitialized) return;
+  layersInitialized = true;
+
+  // --- Vessel layers ---
+  map.addLayer({
+    id: 'vessel-glow', type: 'circle', source: 'vessels',
+    paint: {
+      'circle-radius': 12, 'circle-color': ['get', 'color'],
+      'circle-opacity': 0.15, 'circle-blur': 1,
+    },
+  });
+  map.addLayer({
+    id: 'vessel-dots', type: 'circle', source: 'vessels',
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 3, 12, 5, 16, 8],
+      'circle-color': ['get', 'color'],
+      'circle-opacity': 0.9,
+      'circle-stroke-width': 1,
+      'circle-stroke-color': 'rgba(255,255,255,0.3)',
+    },
+  });
+  map.addLayer({
+    id: 'vessel-labels', type: 'symbol', source: 'vessels', minzoom: 13,
+    layout: {
+      'text-field': ['get', 'name'], 'text-size': 11,
+      'text-offset': [0, 1.4], 'text-anchor': 'top',
+      'text-font': ['Open Sans Regular'],
+    },
+    paint: {
+      'text-color': '#94a3b8', 'text-halo-color': '#0a0e17', 'text-halo-width': 1,
+    },
+  });
+
+  // --- Aircraft layers ---
+  // Load plane icon
+  const img = new Image(32, 32);
+  img.onload = () => {
+    map.addImage('plane-icon', img);
+
     map.addLayer({
-      id: 'vessel-labels',
-      type: 'symbol',
-      source: 'vessels',
-      minzoom: 13,
+      id: 'aircraft-icons', type: 'symbol', source: 'aircraft',
+      filter: ['!=', ['get', 'on_ground'], true],
       layout: {
-        'text-field': ['get', 'name'],
-        'text-size': 11,
-        'text-offset': [0, 1.4],
-        'text-anchor': 'top',
+        'icon-image': 'plane-icon',
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.4, 12, 0.6, 16, 0.9],
+        'icon-rotate': ['get', 'rotation'],
+        'icon-rotation-alignment': 'map',
+        'icon-allow-overlap': true,
+      },
+    });
+
+    map.addLayer({
+      id: 'aircraft-ground', type: 'circle', source: 'aircraft',
+      filter: ['==', ['get', 'on_ground'], true],
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2, 12, 4, 16, 6],
+        'circle-color': AIRCRAFT_COLOR_GROUND,
+        'circle-opacity': 0.7,
+        'circle-stroke-width': 1,
+        'circle-stroke-color': 'rgba(245,158,11,0.4)',
+      },
+    });
+
+    map.addLayer({
+      id: 'aircraft-labels', type: 'symbol', source: 'aircraft', minzoom: 12,
+      layout: {
+        'text-field': ['get', 'name'], 'text-size': 10,
+        'text-offset': [0, 1.2], 'text-anchor': 'top',
         'text-font': ['Open Sans Regular'],
       },
       paint: {
-        'text-color': '#94a3b8',
-        'text-halo-color': '#0a0e17',
-        'text-halo-width': 1,
+        'text-color': '#f59e0b', 'text-halo-color': '#0a0e17', 'text-halo-width': 1,
       },
     });
+  };
+  img.src = makePlaneIcon();
 
-    // Click handler
-    map.on('click', 'vessel-dots', (e) => {
-      const p = e.features[0].properties;
-      document.getElementById('info-name').textContent = p.name;
-      document.getElementById('info-mmsi').textContent = p.mmsi;
-      document.getElementById('info-type').textContent = p.vessel_type;
-      document.getElementById('info-speed').textContent =
-        p.speed != null ? p.speed.toFixed(1) + ' kn' : '—';
-      document.getElementById('info-heading').textContent =
-        (p.heading != null && p.heading !== 511) ? p.heading.toFixed(0) + '\u00B0' : '—';
-      document.getElementById('info-course').textContent =
-        p.course != null ? p.course.toFixed(0) + '\u00B0' : '—';
-      document.getElementById('info-dest').textContent = p.destination || '—';
-      const t = p.timestamp ? new Date(p.timestamp) : null;
-      document.getElementById('info-time').textContent =
-        t ? t.toLocaleTimeString() : '—';
-      document.getElementById('info').classList.add('visible');
-    });
+  // --- Click handlers ---
+  map.on('click', 'vessel-dots', (e) => {
+    showVesselInfo(e.features[0].properties);
+  });
+  map.on('click', 'aircraft-icons', (e) => {
+    showAircraftInfo(e.features[0].properties);
+  });
+  map.on('click', 'aircraft-ground', (e) => {
+    showAircraftInfo(e.features[0].properties);
+  });
 
-    map.on('mouseenter', 'vessel-dots', () => {
-      map.getCanvas().style.cursor = 'pointer';
-    });
-    map.on('mouseleave', 'vessel-dots', () => {
-      map.getCanvas().style.cursor = '';
-    });
-  }
+  // Cursor changes
+  ['vessel-dots', 'aircraft-icons', 'aircraft-ground'].forEach(layer => {
+    map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+  });
 }
 
 map.on('load', async () => {
-  const features = await fetchVessels();
-  updateMap(features);
+  const data = await fetchData();
+  updateMap(data);
   setInterval(async () => {
-    const f = await fetchVessels();
-    updateMap(f);
+    const d = await fetchData();
+    updateMap(d);
   }, REFRESH_MS);
 });
 </script>

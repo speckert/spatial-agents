@@ -47,6 +47,8 @@ available at `/docs` (Swagger UI) and `/redoc`.
 | `SPATIAL_AGENTS_MODE` | `local_mac` | Deployment mode: `local_mac` or `cloud` |
 | `SPATIAL_AGENTS_PORT` | `8012` | Server port |
 | `SPATIAL_AGENTS_AIS_KEY` | — | aisstream.io API key (enables live AIS) |
+| `SPATIAL_AGENTS_ADSB_USER` | — | OpenSky Network username (free account) |
+| `SPATIAL_AGENTS_ADSB_PASS` | — | OpenSky Network password |
 | `SPATIAL_AGENTS_DATA_DIR` | `./data` (local) or `/data` (cloud) | Root data directory |
 | `SPATIAL_AGENTS_TILE_DIR` | `{data_dir}/tiles/h3` | Tile output directory |
 | `SPATIAL_AGENTS_S3_BUCKET` | — | S3 bucket for cloud tile delivery |

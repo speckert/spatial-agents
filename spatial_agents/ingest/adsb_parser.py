@@ -9,11 +9,13 @@ For global coverage, we issue multiple regional queries.
 
 Version History:
     0.1.0  2026-03-28  Initial ADS-B parser with OpenSky integration
+    0.2.0  2026-03-30  Added OpenSky Basic auth support and 429 backoff (5 min)
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -86,10 +88,15 @@ class ADSBParser:
 
     def __init__(self, endpoint: str | None = None) -> None:
         self._endpoint = endpoint or config.feeds.adsb_endpoint
-        self._client = httpx.AsyncClient(timeout=30.0)
+        auth = None
+        if config.feeds.adsb_username and config.feeds.adsb_password:
+            auth = httpx.BasicAuth(config.feeds.adsb_username, config.feeds.adsb_password)
+            logger.info("OpenSky authenticated as: %s", config.feeds.adsb_username)
+        self._client = httpx.AsyncClient(timeout=30.0, auth=auth)
         self._fetch_count = 0
         self._record_count = 0
         self._error_count = 0
+        self._backoff_until: float = 0  # timestamp — skip fetches until this time
 
     @property
     def stats(self) -> dict[str, int]:
@@ -115,6 +122,13 @@ class ADSBParser:
         if bbox is None:
             bbox = BAY_AREA_BBOX
 
+        # Skip if backing off from a 429
+        now = time.monotonic()
+        if now < self._backoff_until:
+            remaining = int(self._backoff_until - now)
+            logger.debug("ADS-B backing off for %ds", remaining)
+            return []
+
         min_lat, max_lat, min_lng, max_lng = bbox
         url = f"{self._endpoint}/states/all"
         params = {
@@ -129,6 +143,14 @@ class ADSBParser:
             response = await self._client.get(url, params=params)
             response.raise_for_status()
             data = response.json()
+        except httpx.HTTPStatusError as exc:
+            self._error_count += 1
+            if exc.response.status_code == 429:
+                self._backoff_until = time.monotonic() + 300
+                logger.warning("ADS-B rate limited — backing off 5 min")
+            else:
+                logger.error("ADS-B fetch error: %s", exc)
+            return []
         except httpx.HTTPError as exc:
             self._error_count += 1
             logger.error("ADS-B fetch error: %s", exc)
