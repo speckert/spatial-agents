@@ -4,12 +4,13 @@ ADS-B Parser — Fetch and parse aircraft state vectors from OpenSky Network.
 Polls the OpenSky REST API at configured intervals and converts state vectors
 into AircraftRecord models with H3 cell assignment.
 
-The OpenSky API returns up to ~10,000 aircraft per bounding box query.
-For global coverage, we issue multiple regional queries.
+Uses OAuth2 client credentials flow for authentication.
 
 Version History:
     0.1.0  2026-03-28  Initial ADS-B parser with OpenSky integration
-    0.2.0  2026-03-30  Added OpenSky Basic auth support and 429 backoff (5 min)
+    0.2.0  2026-03-30  Added OpenSky Basic auth support and 429 backoff
+    0.3.0  2026-03-31  Switched to OAuth2 client credentials, exponential
+                       backoff, tighter Bay Area bbox
 """
 
 from __future__ import annotations
@@ -26,6 +27,12 @@ from spatial_agents.config import config
 from spatial_agents.models import AircraftCategory, AircraftRecord, GeoPosition
 
 logger = logging.getLogger(__name__)
+
+# OpenSky OAuth2 token endpoint
+OPENSKY_TOKEN_URL = (
+    "https://auth.opensky-network.org/auth/realms/opensky-network"
+    "/protocol/openid-connect/token"
+)
 
 # OpenSky emitter category → our AircraftCategory
 _CATEGORY_MAP: dict[int, AircraftCategory] = {
@@ -58,8 +65,8 @@ GLOBAL_REGIONS: list[tuple[str, tuple[float, float, float, float]]] = [
     ("africa", (-40.0, 38.0, -20.0, 55.0)),
 ]
 
-# Bay Area region for development/testing
-BAY_AREA_BBOX: tuple[float, float, float, float] = (37.0, 38.5, -123.0, -121.5)
+# Bay Area region — SFO, OAK, SF, Marin, and East Bay
+BAY_AREA_BBOX: tuple[float, float, float, float] = (37.25, 38.2, -122.78, -121.8)
 
 
 def _assign_h3_cells(lat: float, lng: float) -> dict[int, str]:
@@ -77,7 +84,8 @@ class ADSBParser:
     """
     ADS-B state vector fetcher and parser.
 
-    Polls OpenSky Network API and converts responses into AircraftRecord models.
+    Polls OpenSky Network API using OAuth2 client credentials and converts
+    responses into AircraftRecord models.
 
     Usage:
         parser = ADSBParser()
@@ -88,15 +96,61 @@ class ADSBParser:
 
     def __init__(self, endpoint: str | None = None) -> None:
         self._endpoint = endpoint or config.feeds.adsb_endpoint
-        auth = None
-        if config.feeds.adsb_username and config.feeds.adsb_password:
-            auth = httpx.BasicAuth(config.feeds.adsb_username, config.feeds.adsb_password)
-            logger.info("OpenSky authenticated as: %s", config.feeds.adsb_username)
-        self._client = httpx.AsyncClient(timeout=30.0, auth=auth)
+        self._client = httpx.AsyncClient(timeout=30.0)
         self._fetch_count = 0
         self._record_count = 0
         self._error_count = 0
-        self._backoff_until: float = 0  # timestamp — skip fetches until this time
+        self._backoff_until: float = 0
+        self._consecutive_429s: int = 0
+
+        # OAuth2 state
+        self._client_id = config.feeds.adsb_client_id
+        self._client_secret = config.feeds.adsb_client_secret
+        self._access_token: str | None = None
+        self._token_expires_at: float = 0
+
+        if self._client_id and self._client_secret:
+            logger.info("OpenSky OAuth2 configured — client: %s", self._client_id)
+        else:
+            logger.info("OpenSky running in anonymous mode (no OAuth2 credentials)")
+
+    async def _ensure_token(self) -> None:
+        """Obtain or refresh the OAuth2 access token."""
+        if not self._client_id or not self._client_secret:
+            return
+
+        # Refresh 60 seconds before expiry
+        if self._access_token and time.monotonic() < (self._token_expires_at - 60):
+            return
+
+        try:
+            response = await self._client.post(
+                OPENSKY_TOKEN_URL,
+                data={
+                    "grant_type": "client_credentials",
+                    "client_id": self._client_id,
+                    "client_secret": self._client_secret,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            response.raise_for_status()
+            token_data = response.json()
+            self._access_token = token_data["access_token"]
+            expires_in = token_data.get("expires_in", 1800)
+            self._token_expires_at = time.monotonic() + expires_in
+            logger.info(
+                "OpenSky OAuth2 token acquired — expires in %d min",
+                expires_in // 60,
+            )
+        except Exception as exc:
+            logger.error("OpenSky OAuth2 token request failed: %s", exc)
+            self._access_token = None
+
+    def _auth_headers(self) -> dict[str, str]:
+        """Return Authorization header if we have a token."""
+        if self._access_token:
+            return {"Authorization": f"Bearer {self._access_token}"}
+        return {}
 
     @property
     def stats(self) -> dict[str, int]:
@@ -129,6 +183,9 @@ class ADSBParser:
             logger.debug("ADS-B backing off for %ds", remaining)
             return []
 
+        # Ensure we have a valid OAuth2 token
+        await self._ensure_token()
+
         min_lat, max_lat, min_lng, max_lng = bbox
         url = f"{self._endpoint}/states/all"
         params = {
@@ -140,14 +197,24 @@ class ADSBParser:
 
         try:
             self._fetch_count += 1
-            response = await self._client.get(url, params=params)
+            response = await self._client.get(
+                url, params=params, headers=self._auth_headers(),
+            )
             response.raise_for_status()
             data = response.json()
         except httpx.HTTPStatusError as exc:
             self._error_count += 1
             if exc.response.status_code == 429:
-                self._backoff_until = time.monotonic() + 300
-                logger.warning("ADS-B rate limited — backing off 5 min")
+                self._consecutive_429s += 1
+                wait = min(300 * (2 ** (self._consecutive_429s - 1)), 3600)
+                self._backoff_until = time.monotonic() + wait
+                logger.warning(
+                    "ADS-B rate limited (attempt %d) — backing off %d min",
+                    self._consecutive_429s, wait // 60,
+                )
+            elif exc.response.status_code == 401:
+                logger.warning("OpenSky token expired — will refresh on next poll")
+                self._access_token = None
             else:
                 logger.error("ADS-B fetch error: %s", exc)
             return []
@@ -156,6 +223,7 @@ class ADSBParser:
             logger.error("ADS-B fetch error: %s", exc)
             return []
 
+        self._consecutive_429s = 0
         return self._parse_state_vectors(data)
 
     async def fetch_global(self) -> list[AircraftRecord]:

@@ -3,6 +3,8 @@ API Routes — Dynamic query endpoints for live data and intelligence.
 
 Version History:
     0.1.0  2026-03-28  Initial API routes
+    0.2.0  2026-03-31  Added track history and track_points to vessel and
+                       aircraft endpoint responses
 """
 
 from __future__ import annotations
@@ -56,11 +58,18 @@ async def get_vessels(
         raise HTTPException(503, "Feed manager not initialized")
 
     vessels = _feed_manager.get_vessels_in_cell(h3_cell, resolution)
+    vessel_list = []
+    for v in vessels:
+        vd = v.model_dump(mode="json")
+        track = _feed_manager.get_vessel_track(v.mmsi)
+        vd["track"] = track
+        vd["track_points"] = len(track)
+        vessel_list.append(vd)
     return {
         "h3_cell": h3_cell,
         "resolution": resolution,
         "count": len(vessels),
-        "vessels": [v.model_dump(mode="json") for v in vessels],
+        "vessels": vessel_list,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -77,11 +86,18 @@ async def get_aircraft(
         raise HTTPException(503, "Feed manager not initialized")
 
     aircraft = _feed_manager.get_aircraft_in_cell(h3_cell, resolution)
+    aircraft_list = []
+    for a in aircraft:
+        ad = a.model_dump(mode="json")
+        track = _feed_manager.get_aircraft_track(a.icao24)
+        ad["track"] = track
+        ad["track_points"] = len(track)
+        aircraft_list.append(ad)
     return {
         "h3_cell": h3_cell,
         "resolution": resolution,
         "count": len(aircraft),
-        "aircraft": [a.model_dump(mode="json") for a in aircraft],
+        "aircraft": aircraft_list,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 

@@ -6,6 +6,8 @@ for the pipeline to consume incoming records.
 
 Version History:
     0.1.0  2026-03-28  Initial feed manager with AIS WebSocket + ADS-B polling
+    0.2.0  2026-03-31  Added per-entity position history (5-point tracks) for
+                       vessel and aircraft trail rendering
 """
 
 from __future__ import annotations
@@ -62,6 +64,10 @@ class FeedManager:
         self._vessel_latest: dict[str, VesselRecord] = {}
         self._aircraft_latest: dict[str, AircraftRecord] = {}
 
+        # Position history for trails — deques of (lng, lat) tuples, newest last
+        self._vessel_tracks: dict[str, deque[tuple[float, float]]] = {}
+        self._aircraft_tracks: dict[str, deque[tuple[float, float]]] = {}
+
         # Health tracking
         self._start_time: float = 0.0
         self._ais_last_msg: datetime | None = None
@@ -78,6 +84,30 @@ class FeedManager:
         # Callbacks for downstream processing
         self._vessel_callbacks: list[Callable[[VesselRecord], None]] = []
         self._aircraft_callbacks: list[Callable[[AircraftRecord], None]] = []
+
+    _TRACK_MAXLEN = 5  # current + 4 prior positions
+
+    def _update_track(
+        self,
+        tracks: dict[str, deque[tuple[float, float]]],
+        entity_id: str,
+        lng: float,
+        lat: float,
+    ) -> None:
+        """Append a position to an entity's track, skipping duplicates."""
+        if entity_id not in tracks:
+            tracks[entity_id] = deque(maxlen=self._TRACK_MAXLEN)
+        trail = tracks[entity_id]
+        if not trail or trail[-1] != (lng, lat):
+            trail.append((lng, lat))
+
+    def get_vessel_track(self, mmsi: str) -> list[tuple[float, float]]:
+        """Return position history for a vessel as [(lng, lat), ...]."""
+        return list(self._vessel_tracks.get(mmsi, []))
+
+    def get_aircraft_track(self, icao24: str) -> list[tuple[float, float]]:
+        """Return position history for an aircraft as [(lng, lat), ...]."""
+        return list(self._aircraft_tracks.get(icao24, []))
 
     def on_vessel(self, callback: Callable[[VesselRecord], None]) -> None:
         """Register a callback for new vessel records."""
@@ -178,6 +208,10 @@ class FeedManager:
                     self._adsb_msg_count += 1
                     self._aircraft_buffer.append(record)
                     self._aircraft_latest[record.icao24] = record
+                    self._update_track(
+                        self._aircraft_tracks, record.icao24,
+                        record.position.lng, record.position.lat,
+                    )
                     for cb in self._aircraft_callbacks:
                         cb(record)
 
@@ -211,6 +245,10 @@ class FeedManager:
                     self._ais_msg_count += 1
                     self._vessel_buffer.append(record)
                     self._vessel_latest[record.mmsi] = record
+                    self._update_track(
+                        self._vessel_tracks, record.mmsi,
+                        record.position.lng, record.position.lat,
+                    )
                     self._ais_last_msg = datetime.now(timezone.utc)
                     for cb in self._vessel_callbacks:
                         cb(record)
@@ -238,6 +276,10 @@ class FeedManager:
             self._ais_msg_count += 1
             self._vessel_buffer.append(record)
             self._vessel_latest[record.mmsi] = record
+            self._update_track(
+                self._vessel_tracks, record.mmsi,
+                record.position.lng, record.position.lat,
+            )
             self._ais_last_msg = now
             for cb in self._vessel_callbacks:
                 cb(record)

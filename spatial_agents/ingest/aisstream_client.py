@@ -8,6 +8,7 @@ Requires a free API key from https://aisstream.io
 
 Version History:
     0.1.0  2026-03-29  Initial aisstream.io WebSocket client
+    0.2.0  2026-03-31  Unified bounding box with ADS-B coverage area
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ _AIS_TYPE_MAP: dict[range, VesselType] = {
 }
 
 # SF Bay Area bounding box: [[lat_min, lng_min], [lat_max, lng_max]]
-BAY_AREA_BBOX = [[37.0, -123.0], [38.5, -121.5]]
+BAY_AREA_BBOX = [[37.25, -122.78], [38.2, -121.8]]
 
 
 def _classify_vessel_type(ais_type: int | None) -> VesselType:

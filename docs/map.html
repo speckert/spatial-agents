@@ -90,7 +90,7 @@
   .info-close:hover { color: var(--text-primary); }
 
   .legend {
-    position: absolute; bottom: 1.5rem; right: 1.25rem; z-index: 10;
+    position: absolute; top: 64px; right: 1.25rem; z-index: 10;
     background: var(--bg-panel); backdrop-filter: blur(12px);
     border: 1px solid var(--border); border-radius: 8px;
     padding: 0.75rem 1rem; font-size: 0.7rem;
@@ -106,10 +106,32 @@
     color: var(--text-secondary);
   }
   .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .legend-plane {
-    width: 10px; height: 10px; flex-shrink: 0; text-align: center;
-    font-size: 10px; line-height: 10px;
+  .legend-plane-icon { width: 14px; flex-shrink: 0; font-size: 14px; line-height: 1; text-align: center; }
+
+  .trail-toggle {
+    margin-top: 0.6rem; padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 0.5rem;
+    cursor: pointer; user-select: none;
   }
+  .trail-toggle .toggle-track {
+    width: 28px; height: 14px; border-radius: 7px;
+    background: var(--border); position: relative; transition: background 0.2s;
+    flex-shrink: 0;
+  }
+  .trail-toggle .toggle-track.on { background: var(--accent-cyan); }
+  .trail-toggle .toggle-thumb {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--text-primary); position: absolute;
+    top: 2px; left: 2px; transition: left 0.2s;
+  }
+  .trail-toggle .toggle-track.on .toggle-thumb { left: 16px; }
+  .trail-toggle .toggle-label {
+    font-family: var(--font-mono); font-size: 0.65rem;
+    color: var(--text-secondary); letter-spacing: 0.04em;
+  }
+
+  .maplibregl-ctrl-top-right { top: 56px; right: 160px; }
 
   @media (max-width: 768px) {
     .info-panel { left: 0.75rem; right: 0.75rem; min-width: auto; max-width: none; }
@@ -148,9 +170,20 @@
   <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>Tug</div>
   <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div>Fishing</div>
   <div class="legend-item"><div class="legend-dot" style="background:#06b6d4"></div>Other</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#64748b"></div>Unknown</div>
   <div class="legend-section">Aircraft</div>
-  <div class="legend-item"><div class="legend-plane">&#x2708;</div>Airborne</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#f59e0b;width:8px;height:8px"></div>On Ground</div>
+  <div class="legend-item"><div class="legend-plane-icon" style="color:#22d3ee">&#x2708;</div>Departure</div>
+  <div class="legend-item"><div class="legend-plane-icon" style="color:#10b981">&#x2708;</div>Climbing</div>
+  <div class="legend-item"><div class="legend-plane-icon" style="color:#3b82f6">&#x2708;</div>Cruising</div>
+  <div class="legend-item"><div class="legend-plane-icon" style="color:#f59e0b">&#x2708;</div>Descending</div>
+  <div class="legend-item"><div class="legend-plane-icon" style="color:#f43f5e">&#x2708;</div>Approach</div>
+  <div class="legend-item"><div class="legend-plane-icon" style="color:#78716c">&#x2708;</div>On Ground</div>
+  <div class="legend-section">Coverage</div>
+  <div class="legend-item"><div style="width:16px;height:2px;border-top:2px dashed #06b6d4;flex-shrink:0"></div>Data Collection</div>
+  <div class="trail-toggle" id="trail-toggle" onclick="toggleLongTail()">
+    <div class="toggle-track" id="toggle-track"><div class="toggle-thumb"></div></div>
+    <span class="toggle-label">Long Tail</span>
+  </div>
 </div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -158,9 +191,10 @@
 const API = window.location.hostname === 'agents.specktech.com'
   ? ''
   : 'http://127.0.0.1:8012';
-const H3_CELL = '832830fffffffff';
+const H3_CELLS = ['832830fffffffff', '832834fffffffff'];
 const RESOLUTION = 3;
-const REFRESH_MS = 30000;
+const VESSEL_REFRESH_MS = 45000;
+const AIRCRAFT_REFRESH_MS = 22000;
 
 const VESSEL_COLORS = {
   tanker: '#f43f5e', cargo: '#3b82f6', passenger: '#10b981',
@@ -169,17 +203,117 @@ const VESSEL_COLORS = {
   other: '#06b6d4', unknown: '#64748b',
 };
 
-const AIRCRAFT_COLOR_AIRBORNE = '#f59e0b';
-const AIRCRAFT_COLOR_GROUND = '#78716c';
+const AIRCRAFT_COLORS = {
+  approach:   '#f43f5e',
+  departure:  '#22d3ee',
+  climbing:   '#10b981',
+  cruising:   '#3b82f6',
+  descending: '#f59e0b',
+  ground:     '#78716c',
+};
 
-// --- Plane icon as SVG data URL ---
-function makePlaneIcon() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+function classifyFlightPhase(a) {
+  if (a.on_ground) return 'ground';
+  const vr = a.vertical_rate_fpm;
+  const alt_ft = a.position.alt_m != null ? a.position.alt_m * 3.28084 : null;
+
+  // Under 200 ft AGL — approach or departure
+  if (alt_ft != null && alt_ft < 200) {
+    return (vr != null && vr > 100) ? 'departure' : 'approach';
+  }
+  // Descending at any altitude above 200 ft
+  if (vr != null && vr < -300) return 'descending';
+  // Above FL180 and level or climbing — cruising
+  if (alt_ft != null && alt_ft >= 18000) return 'cruising';
+  // Below FL180 — climbing (ascending, level, or unknown)
+  return 'climbing';
+}
+
+function makePlaneIcon(color) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 32 32">
     <path d="M16 2 L19 12 L28 14 L19 16 L16 30 L13 16 L4 14 L13 12 Z"
-          fill="#f59e0b" stroke="#0a0e17" stroke-width="1.5"/>
+          fill="${color}" stroke="#0a0e17" stroke-width="1.5"/>
   </svg>`;
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
+
+// --- Catmull-Rom spline for smooth trails ---
+// Given control points P0..P3, evaluate the curve between P1 and P2 at t=[0,1]
+function catmullRom(p0, p1, p2, p3, t) {
+  const t2 = t * t, t3 = t2 * t;
+  return [
+    0.5 * ((2*p1[0]) + (-p0[0]+p2[0])*t + (2*p0[0]-5*p1[0]+4*p2[0]-p3[0])*t2 + (-p0[0]+3*p1[0]-3*p2[0]+p3[0])*t3),
+    0.5 * ((2*p1[1]) + (-p0[1]+p2[1])*t + (2*p0[1]-5*p1[1]+4*p2[1]-p3[1])*t2 + (-p0[1]+3*p1[1]-3*p2[1]+p3[1])*t3),
+  ];
+}
+
+let longTailMode = false;
+
+function toggleLongTail() {
+  longTailMode = !longTailMode;
+  document.getElementById('toggle-track').classList.toggle('on', longTailMode);
+  // Re-render trails with current data
+  if (lastVesselEntities) updateVessels(lastVesselEntities);
+  if (lastAircraftEntities) updateAircraft(lastAircraftEntities);
+}
+
+// Short tail: smooth curve from previous to current position only,
+// shaped by all available control points.
+function shortTrail(track, color) {
+  if (!track || track.length < 2) return null;
+  const n = track.length;
+  const p0 = n >= 3 ? track[n - 3] : track[n - 2];
+  const p1 = track[n - 2];
+  const p2 = track[n - 1];
+  const p3 = [2 * p2[0] - p1[0], 2 * p2[1] - p1[1]];
+
+  const steps = 12;
+  const coords = [];
+  for (let i = 0; i <= steps; i++) {
+    coords.push(catmullRom(p0, p1, p2, p3, i / steps));
+  }
+  return {
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: coords },
+    properties: { color },
+  };
+}
+
+// Long tail: Catmull-Rom spline through ALL available track points.
+function longTrail(track, color) {
+  if (!track || track.length < 2) return null;
+  const coords = [];
+  const steps = 10;
+  for (let seg = 0; seg < track.length - 1; seg++) {
+    const p0 = track[Math.max(seg - 1, 0)];
+    const p1 = track[seg];
+    const p2 = track[seg + 1];
+    const p3 = seg + 2 < track.length ? track[seg + 2] : [2 * p2[0] - p1[0], 2 * p2[1] - p1[1]];
+    for (let i = 0; i <= steps; i++) {
+      // Avoid duplicate point at segment joins
+      if (seg > 0 && i === 0) continue;
+      coords.push(catmullRom(p0, p1, p2, p3, i / steps));
+    }
+  }
+  return {
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: coords },
+    properties: { color },
+  };
+}
+
+function buildTrailFeatures(entities, colorFn) {
+  const trailFn = longTailMode ? longTrail : shortTrail;
+  const features = [];
+  for (const e of entities) {
+    const trail = trailFn(e.track, colorFn(e));
+    if (trail) features.push(trail);
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+let lastVesselEntities = null;
+let lastAircraftEntities = null;
 
 const map = new maplibregl.Map({
   container: 'map',
@@ -198,75 +332,97 @@ const map = new maplibregl.Map({
       minzoom: 0, maxzoom: 19,
     }],
   },
-  center: [-122.35, 37.80],
-  zoom: 11,
+  center: [-122.29, 37.725],
+  zoom: 10,
   maxZoom: 18,
-  minZoom: 8,
+  minZoom: 7,
 });
+
+// Fit map to the data coverage bbox on load and window resize
+const COVERAGE_BOUNDS = [[-122.78, 37.25], [-121.8, 38.2]];
+function fitToCoverage() {
+  map.fitBounds(COVERAGE_BOUNDS, { padding: { top: 56, bottom: 16, left: 16, right: 16 }, maxZoom: 14 });
+}
+map.once('load', fitToCoverage);
+window.addEventListener('resize', () => { clearTimeout(window._resizeTimer); window._resizeTimer = setTimeout(fitToCoverage, 200); });
 
 map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
 function vesselToFeature(v) {
+  const color = VESSEL_COLORS[v.vessel_type] || VESSEL_COLORS.unknown;
   return {
-    type: 'Feature',
-    geometry: { type: 'Point', coordinates: [v.position.lng, v.position.lat] },
-    properties: {
-      kind: 'vessel',
-      id: v.mmsi,
-      name: v.name || 'Unknown',
-      vessel_type: v.vessel_type || 'unknown',
-      speed: v.speed_knots,
-      heading: v.heading_deg,
-      course: v.course_deg,
-      destination: v.destination || '',
-      timestamp: v.position.timestamp,
-      color: VESSEL_COLORS[v.vessel_type] || VESSEL_COLORS.unknown,
+    feature: {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [v.position.lng, v.position.lat] },
+      properties: {
+        kind: 'vessel', id: v.mmsi, name: v.name || 'Unknown',
+        vessel_type: v.vessel_type || 'unknown',
+        speed: v.speed_knots, heading: v.heading_deg, course: v.course_deg,
+        destination: v.destination || '', timestamp: v.position.timestamp,
+        color: color, track_points: v.track_points || 0,
+      },
     },
+    track: v.track || [],
+    color: color,
   };
 }
 
 function aircraftToFeature(a) {
   const hdg = a.heading_deg != null ? a.heading_deg : 0;
+  const phase = classifyFlightPhase(a);
+  const color = AIRCRAFT_COLORS[phase];
   return {
-    type: 'Feature',
-    geometry: { type: 'Point', coordinates: [a.position.lng, a.position.lat] },
-    properties: {
-      kind: 'aircraft',
-      id: a.icao24,
-      name: a.callsign || a.icao24,
-      callsign: a.callsign || '',
-      icao24: a.icao24,
-      category: a.category || 'unknown',
-      speed: a.velocity_knots,
-      heading: hdg,
-      altitude: a.position.alt_m != null ? Math.round(a.position.alt_m * 3.28084) : null,
-      vertical_rate: a.vertical_rate_fpm,
-      on_ground: a.on_ground,
-      squawk: a.squawk || '',
-      timestamp: a.position.timestamp,
-      rotation: hdg,
+    feature: {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [a.position.lng, a.position.lat] },
+      properties: {
+        kind: 'aircraft', id: a.icao24, name: a.callsign || a.icao24,
+        callsign: a.callsign || '', icao24: a.icao24,
+        category: a.category || 'unknown', phase: phase, color: color,
+        speed: a.velocity_knots, heading: hdg,
+        altitude: a.position.alt_m != null ? Math.round(a.position.alt_m * 3.28084) : null,
+        vertical_rate: a.vertical_rate_fpm, on_ground: a.on_ground,
+        squawk: a.squawk || '', timestamp: a.position.timestamp, rotation: hdg,
+        track_points: a.track_points || 0,
+      },
     },
+    track: a.track || [],
+    color: color,
   };
 }
 
-async function fetchData() {
+async function fetchVessels() {
   try {
-    const [vRes, aRes] = await Promise.all([
-      fetch(`${API}/api/vessels/${H3_CELL}?resolution=${RESOLUTION}`),
-      fetch(`${API}/api/aircraft/${H3_CELL}?resolution=${RESOLUTION}`),
-    ]);
-    const vData = await vRes.json();
-    const aData = await aRes.json();
-    document.getElementById('vessel-count').textContent = vData.count;
-    document.getElementById('aircraft-count').textContent = aData.count;
-    return {
-      vessels: vData.vessels.map(vesselToFeature),
-      aircraft: aData.aircraft.map(aircraftToFeature),
-    };
-  } catch (e) {
-    console.error('Fetch error:', e);
-    return null;
-  }
+    const results = await Promise.all(
+      H3_CELLS.map(c => fetch(`${API}/api/vessels/${c}?resolution=${RESOLUTION}`).then(r => r.json()))
+    );
+    const seen = new Set();
+    const entities = [];
+    for (const data of results) {
+      for (const v of data.vessels) {
+        if (!seen.has(v.mmsi)) { seen.add(v.mmsi); entities.push(vesselToFeature(v)); }
+      }
+    }
+    document.getElementById('vessel-count').textContent = entities.length;
+    return entities;
+  } catch (e) { console.error('Vessel fetch error:', e); return null; }
+}
+
+async function fetchAircraft() {
+  try {
+    const results = await Promise.all(
+      H3_CELLS.map(c => fetch(`${API}/api/aircraft/${c}?resolution=${RESOLUTION}`).then(r => r.json()))
+    );
+    const seen = new Set();
+    const entities = [];
+    for (const data of results) {
+      for (const a of data.aircraft) {
+        if (!seen.has(a.icao24)) { seen.add(a.icao24); entities.push(aircraftToFeature(a)); }
+      }
+    }
+    document.getElementById('aircraft-count').textContent = entities.length;
+    return entities;
+  } catch (e) { console.error('Aircraft fetch error:', e); return null; }
 }
 
 function showVesselInfo(p) {
@@ -275,8 +431,7 @@ function showVesselInfo(p) {
   kind.textContent = 'Vessel';
   kind.className = 'info-kind vessel';
   const rows = [
-    ['MMSI', p.id],
-    ['Type', p.vessel_type],
+    ['MMSI', p.id], ['Type', p.vessel_type],
     ['Speed', p.speed != null ? Number(p.speed).toFixed(1) + ' kn' : '—'],
     ['Heading', (p.heading != null && p.heading !== 511) ? Number(p.heading).toFixed(0) + '\u00B0' : '—'],
     ['Course', p.course != null ? Number(p.course).toFixed(0) + '\u00B0' : '—'],
@@ -296,13 +451,12 @@ function showAircraftInfo(p) {
   kind.className = 'info-kind aircraft';
   const alt = p.altitude != null ? Number(p.altitude).toLocaleString() + ' ft' : '—';
   const vr = p.vertical_rate != null ? (Number(p.vertical_rate) >= 0 ? '+' : '') + Number(p.vertical_rate).toFixed(0) + ' fpm' : '—';
+  const phase = p.phase || (p.on_ground === true || p.on_ground === 'true' ? 'ground' : 'cruising');
   const rows = [
-    ['ICAO24', p.icao24],
-    ['Callsign', p.callsign || '—'],
-    ['Category', p.category],
+    ['ICAO24', p.icao24], ['Callsign', p.callsign || '—'],
+    ['Phase', phase.charAt(0).toUpperCase() + phase.slice(1)],
     ['Speed', p.speed != null ? Number(p.speed).toFixed(0) + ' kn' : '—'],
-    ['Altitude', alt],
-    ['Vert Rate', vr],
+    ['Altitude', alt], ['Vert Rate', vr],
     ['Heading', p.heading != null ? Number(p.heading).toFixed(0) + '\u00B0' : '—'],
     ['Squawk', p.squawk || '—'],
     ['On Ground', p.on_ground === true || p.on_ground === 'true' ? 'Yes' : 'No'],
@@ -314,25 +468,50 @@ function showAircraftInfo(p) {
   document.getElementById('info').classList.add('visible');
 }
 
+// --- Source & layer management ---
 let layersInitialized = false;
 
-function updateMap(data) {
-  if (!data) return;
+function setSourceData(id, geojson) {
+  const src = map.getSource(id);
+  if (src) src.setData(geojson);
+  else map.addSource(id, { type: 'geojson', data: geojson });
+}
 
-  // Vessels
-  const vesselGeoJSON = { type: 'FeatureCollection', features: data.vessels };
-  const vSrc = map.getSource('vessels');
-  if (vSrc) { vSrc.setData(vesselGeoJSON); }
-  else { map.addSource('vessels', { type: 'geojson', data: vesselGeoJSON }); }
+function updateVessels(entities) {
+  if (!entities) return;
+  lastVesselEntities = entities;
+  setSourceData('vessels', { type: 'FeatureCollection', features: entities.map(e => e.feature) });
+  setSourceData('vessel-trails', buildTrailFeatures(entities, e => e.color));
+}
 
-  // Aircraft
-  const aircraftGeoJSON = { type: 'FeatureCollection', features: data.aircraft };
-  const aSrc = map.getSource('aircraft');
-  if (aSrc) { aSrc.setData(aircraftGeoJSON); }
-  else { map.addSource('aircraft', { type: 'geojson', data: aircraftGeoJSON }); }
+function updateAircraft(entities) {
+  if (!entities) return;
+  lastAircraftEntities = entities;
+  setSourceData('aircraft', { type: 'FeatureCollection', features: entities.map(e => e.feature) });
+  setSourceData('aircraft-trails', buildTrailFeatures(entities, e => e.color));
+}
 
+function initLayers() {
   if (layersInitialized) return;
   layersInitialized = true;
+
+  // --- Trail layers (drawn first, underneath dots/icons) ---
+  map.addLayer({
+    id: 'vessel-trail-lines', type: 'line', source: 'vessel-trails',
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1, 12, 2, 16, 3],
+      'line-opacity': 0.4,
+    },
+  });
+  map.addLayer({
+    id: 'aircraft-trail-lines', type: 'line', source: 'aircraft-trails',
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1, 12, 1.5, 16, 2.5],
+      'line-opacity': 0.35,
+    },
+  });
 
   // --- Vessel layers ---
   map.addLayer({
@@ -365,35 +544,33 @@ function updateMap(data) {
   });
 
   // --- Aircraft layers ---
-  // Load plane icon
-  const img = new Image(32, 32);
-  img.onload = () => {
-    map.addImage('plane-icon', img);
+  const phases = Object.entries(AIRCRAFT_COLORS);
+  let loadedCount = 0;
 
+  function addAircraftLayers() {
     map.addLayer({
       id: 'aircraft-icons', type: 'symbol', source: 'aircraft',
-      filter: ['!=', ['get', 'on_ground'], true],
+      filter: ['!=', ['get', 'phase'], 'ground'],
       layout: {
-        'icon-image': 'plane-icon',
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.4, 12, 0.6, 16, 0.9],
+        'icon-image': ['concat', 'plane-', ['get', 'phase']],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.52, 12, 0.78, 16, 1.17],
         'icon-rotate': ['get', 'rotation'],
         'icon-rotation-alignment': 'map',
         'icon-allow-overlap': true,
       },
     });
-
     map.addLayer({
-      id: 'aircraft-ground', type: 'circle', source: 'aircraft',
-      filter: ['==', ['get', 'on_ground'], true],
-      paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2, 12, 4, 16, 6],
-        'circle-color': AIRCRAFT_COLOR_GROUND,
-        'circle-opacity': 0.7,
-        'circle-stroke-width': 1,
-        'circle-stroke-color': 'rgba(245,158,11,0.4)',
+      id: 'aircraft-ground', type: 'symbol', source: 'aircraft',
+      filter: ['==', ['get', 'phase'], 'ground'],
+      layout: {
+        'icon-image': 'plane-ground',
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.35, 12, 0.55, 16, 0.85],
+        'icon-rotate': ['get', 'rotation'],
+        'icon-rotation-alignment': 'map',
+        'icon-allow-overlap': true,
       },
+      paint: { 'icon-opacity': 0.7 },
     });
-
     map.addLayer({
       id: 'aircraft-labels', type: 'symbol', source: 'aircraft', minzoom: 12,
       layout: {
@@ -402,37 +579,74 @@ function updateMap(data) {
         'text-font': ['Open Sans Regular'],
       },
       paint: {
-        'text-color': '#f59e0b', 'text-halo-color': '#0a0e17', 'text-halo-width': 1,
+        'text-color': ['get', 'color'],
+        'text-halo-color': '#0a0e17', 'text-halo-width': 1,
       },
     });
-  };
-  img.src = makePlaneIcon();
+  }
+
+  phases.forEach(([phase, color]) => {
+    const img = new Image(40, 40);
+    img.onload = () => {
+      map.addImage(`plane-${phase}`, img);
+      loadedCount++;
+      if (loadedCount === phases.length) addAircraftLayers();
+    };
+    img.src = makePlaneIcon(color);
+  });
 
   // --- Click handlers ---
-  map.on('click', 'vessel-dots', (e) => {
-    showVesselInfo(e.features[0].properties);
-  });
-  map.on('click', 'aircraft-icons', (e) => {
-    showAircraftInfo(e.features[0].properties);
-  });
-  map.on('click', 'aircraft-ground', (e) => {
-    showAircraftInfo(e.features[0].properties);
-  });
+  map.on('click', 'vessel-dots', (e) => showVesselInfo(e.features[0].properties));
+  map.on('click', 'aircraft-icons', (e) => showAircraftInfo(e.features[0].properties));
+  map.on('click', 'aircraft-ground', (e) => showAircraftInfo(e.features[0].properties));
 
-  // Cursor changes
   ['vessel-dots', 'aircraft-icons', 'aircraft-ground'].forEach(layer => {
     map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
   });
 }
 
+// --- Init & polling ---
 map.on('load', async () => {
-  const data = await fetchData();
-  updateMap(data);
-  setInterval(async () => {
-    const d = await fetchData();
-    updateMap(d);
-  }, REFRESH_MS);
+  // --- Data collection bounding box (unified AIS + ADS-B) ---
+  const COVERAGE_BBOX = [[-122.78, 37.25], [-121.8, 37.25], [-121.8, 38.2], [-122.78, 38.2], [-122.78, 37.25]];
+
+  map.addSource('coverage-bbox', {
+    type: 'geojson',
+    data: { type: 'Feature', geometry: { type: 'LineString', coordinates: COVERAGE_BBOX },
+            properties: {} },
+  });
+  map.addLayer({
+    id: 'coverage-bbox-line', type: 'line', source: 'coverage-bbox',
+    paint: { 'line-color': '#06b6d4', 'line-width': 1.5, 'line-dasharray': [4, 3], 'line-opacity': 0.45 },
+  });
+  map.addLayer({
+    id: 'coverage-bbox-label', type: 'symbol', source: 'coverage-bbox',
+    layout: {
+      'symbol-placement': 'line', 'text-field': 'Data Coverage',
+      'text-size': 11, 'text-font': ['Open Sans Regular'],
+      'text-offset': [0, -0.8],
+    },
+    paint: { 'text-color': '#06b6d4', 'text-opacity': 0.5,
+             'text-halo-color': '#0a0e17', 'text-halo-width': 1 },
+  });
+
+  // Initialize empty sources so layers can be added
+  const empty = { type: 'FeatureCollection', features: [] };
+  setSourceData('vessels', empty);
+  setSourceData('aircraft', empty);
+  setSourceData('vessel-trails', empty);
+  setSourceData('aircraft-trails', empty);
+  initLayers();
+
+  // Initial fetch
+  const [vessels, aircraft] = await Promise.all([fetchVessels(), fetchAircraft()]);
+  updateVessels(vessels);
+  updateAircraft(aircraft);
+
+  // Separate intervals
+  setInterval(async () => { updateVessels(await fetchVessels()); }, VESSEL_REFRESH_MS);
+  setInterval(async () => { updateAircraft(await fetchAircraft()); }, AIRCRAFT_REFRESH_MS);
 });
 </script>
 

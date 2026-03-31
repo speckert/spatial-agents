@@ -7,6 +7,8 @@ Version History:
                        Apache reverse proxy deployment on Neural Magician
     0.2.0  2026-03-30  Local_mac data dir defaults to project-relative ./data,
                        ADS-B poll interval to 60s, added OpenSky auth credentials
+    0.3.0  2026-03-31  Switched to OAuth2 client_id/client_secret, unified
+                       AIS+ADS-B bounding box, poll interval to 45s
 """
 
 from __future__ import annotations
@@ -40,16 +42,16 @@ class FeedConfig(BaseModel):
         default="https://opensky-network.org/api",
         description="ADS-B REST API endpoint (OpenSky Network)",
     )
-    adsb_username: str = Field(
+    adsb_client_id: str = Field(
         default="",
-        description="OpenSky Network username (free account for better rate limits)",
+        description="OpenSky Network OAuth2 client ID",
     )
-    adsb_password: str = Field(
+    adsb_client_secret: str = Field(
         default="",
-        description="OpenSky Network password",
+        description="OpenSky Network OAuth2 client secret",
     )
     adsb_poll_interval_sec: int = Field(
-        default=60,
+        default=45,
         description="Seconds between ADS-B position polls",
     )
 
@@ -152,8 +154,8 @@ class SpatialAgentsConfig(BaseModel):
             mode=mode,
             feeds=FeedConfig(
                 ais_api_key=os.getenv("SPATIAL_AGENTS_AIS_KEY", ""),
-                adsb_username=os.getenv("SPATIAL_AGENTS_ADSB_USER", ""),
-                adsb_password=os.getenv("SPATIAL_AGENTS_ADSB_PASS", ""),
+                adsb_client_id=os.getenv("SPATIAL_AGENTS_ADSB_CLIENT_ID", ""),
+                adsb_client_secret=os.getenv("SPATIAL_AGENTS_ADSB_CLIENT_SECRET", ""),
             ),
             tiling=TilingConfig(tile_output_dir=tile_dir),
             serving=ServingConfig(
