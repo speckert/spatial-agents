@@ -3,14 +3,11 @@
   index.html
   Spatial Agents — Landing Page
 
-  Public landing page for spatialagents.com. Introduces the Spatial Agents
-  ecosystem: real-time geospatial intelligence on Apple platforms with
-  privacy-by-design on-device processing.
-
   Version History:
-      0.1.0  2026-03-29  Initial landing page — product overview, feature cards,
-                         platform support, architecture link, contact
-      0.1.1  2026-03-29  Fixed architecture link for ~/Sites/SpatialAgents/ layout
+      0.1.0  2026-03-29  Initial landing page
+      0.1.1  2026-03-29  Fixed architecture link
+      0.2.0  2026-03-30  Compact header, feature cards link to detail pages
+      0.3.0  2026-03-30  Streamlined — ecosystem diagram, removed redundant sections
 -->
 <html lang="en">
 <head>
@@ -20,317 +17,154 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg-deep: #0a0e17;
-    --bg-panel: #111827;
-    --bg-card: #1a2235;
-    --bg-card-hover: #1f2a40;
-    --border: #2a3650;
-    --border-accent: #3b82f6;
-    --text-primary: #e2e8f0;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
-    --accent-blue: #3b82f6;
-    --accent-cyan: #06b6d4;
-    --accent-emerald: #10b981;
-    --accent-amber: #f59e0b;
-    --accent-rose: #f43f5e;
-    --accent-violet: #8b5cf6;
+    --bg-deep: #0a0e17; --bg-panel: #111827; --bg-card: #1a2235;
+    --bg-card-hover: #1f2a40; --border: #2a3650; --border-accent: #3b82f6;
+    --text-primary: #e2e8f0; --text-secondary: #94a3b8; --text-muted: #64748b;
+    --accent-blue: #3b82f6; --accent-cyan: #06b6d4; --accent-emerald: #10b981;
+    --accent-amber: #f59e0b; --accent-rose: #f43f5e; --accent-violet: #8b5cf6;
     --font-display: 'Instrument Serif', serif;
     --font-body: 'DM Sans', sans-serif;
     --font-mono: 'DM Mono', monospace;
   }
-
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html { scroll-behavior: smooth; }
-
   body {
-    background: var(--bg-deep);
-    color: var(--text-primary);
-    font-family: var(--font-body);
-    line-height: 1.7;
-    overflow-x: hidden;
+    background: var(--bg-deep); color: var(--text-primary);
+    font-family: var(--font-body); line-height: 1.7; overflow-x: hidden;
   }
-
-  /* Ambient background */
   body::before {
-    content: '';
-    position: fixed;
-    top: -30%; left: -10%;
+    content: ''; position: fixed; top: -30%; left: -10%;
     width: 70vw; height: 70vh;
-    background: radial-gradient(ellipse, rgba(6, 182, 212, 0.06) 0%, transparent 70%);
-    pointer-events: none;
-    z-index: 0;
+    background: radial-gradient(ellipse, rgba(6,182,212,0.06) 0%, transparent 70%);
+    pointer-events: none; z-index: 0;
   }
   body::after {
-    content: '';
-    position: fixed;
-    bottom: -20%; right: -5%;
+    content: ''; position: fixed; bottom: -20%; right: -5%;
     width: 50vw; height: 50vh;
-    background: radial-gradient(ellipse, rgba(59, 130, 246, 0.05) 0%, transparent 70%);
-    pointer-events: none;
-    z-index: 0;
+    background: radial-gradient(ellipse, rgba(59,130,246,0.05) 0%, transparent 70%);
+    pointer-events: none; z-index: 0;
   }
 
-  /* --- Header --- */
   header {
-    position: relative;
-    z-index: 1;
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 6rem 2rem 4rem;
-    text-align: center;
+    position: relative; z-index: 1; max-width: 960px;
+    margin: 0 auto; padding: 2.5rem 2rem 1.5rem; text-align: center;
   }
-
-  .wordmark {
-    font-family: var(--font-mono);
-    font-size: 0.7rem;
-    font-weight: 500;
-    color: var(--accent-cyan);
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    margin-bottom: 2rem;
-  }
-
   h1 {
-    font-family: var(--font-display);
-    font-size: clamp(2.8rem, 6vw, 4.5rem);
-    font-weight: 400;
-    line-height: 1.08;
-    color: var(--text-primary);
-    margin-bottom: 1.5rem;
+    font-family: var(--font-display); font-size: clamp(2.2rem, 5vw, 3.2rem);
+    font-weight: 400; line-height: 1.1; color: var(--text-primary); margin-bottom: 0.75rem;
   }
-  h1 em {
-    font-style: italic;
-    color: var(--accent-cyan);
-  }
-
+  h1 em { font-style: italic; color: var(--accent-cyan); }
   .subtitle {
-    font-size: 1.15rem;
-    color: var(--text-secondary);
-    max-width: 600px;
-    margin: 0 auto 3rem;
-    line-height: 1.8;
+    font-size: 1rem; color: var(--text-secondary); max-width: 560px;
+    margin: 0 auto; line-height: 1.7;
   }
+  .here-btn {
+    display: inline-block; font-family: var(--font-mono); font-size: 0.85rem;
+    font-weight: 500; color: var(--bg-deep); background: var(--accent-cyan);
+    border: 1px solid var(--accent-cyan); padding: 0.3rem 1rem; border-radius: 5px;
+    text-decoration: none; letter-spacing: 0.04em; margin-left: 0.15rem;
+    transition: all 0.2s; vertical-align: baseline;
+  }
+  .here-btn:hover { background: transparent; color: var(--accent-cyan); }
 
-  /* --- Sections --- */
   section {
-    position: relative;
-    z-index: 1;
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 3rem 2rem;
+    position: relative; z-index: 1; max-width: 960px;
+    margin: 0 auto; padding: 1.25rem 2rem;
   }
-
-  .section-label {
-    font-family: var(--font-mono);
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 0.15em;
-    color: var(--accent-cyan);
-    margin-bottom: 0.75rem;
-  }
-
-  h2 {
-    font-family: var(--font-display);
-    font-size: clamp(1.8rem, 3vw, 2.4rem);
-    font-weight: 400;
-    line-height: 1.2;
-    color: var(--text-primary);
-    margin-bottom: 1.25rem;
-  }
-
   .divider {
     height: 1px;
     background: linear-gradient(90deg, transparent, var(--border) 20%, var(--border) 80%, transparent);
-    margin: 2rem 0;
-  }
-
-  /* --- Pill badges --- */
-  .pills {
-    display: flex;
-    gap: 0.5rem;
-    justify-content: center;
-    flex-wrap: wrap;
-    margin-bottom: 3rem;
-  }
-  .pill {
-    font-family: var(--font-mono);
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    padding: 0.35rem 0.9rem;
-    border-radius: 20px;
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    background: var(--bg-card);
-  }
-  .pill.highlight {
-    border-color: var(--accent-cyan);
-    color: var(--accent-cyan);
   }
 
   /* --- Feature cards --- */
   .cards-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 1.25rem;
-    margin: 2rem 0;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem; margin: 1rem 0;
   }
-
   .card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 1.75rem;
-    transition: all 0.3s;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1.5rem; transition: all 0.3s; text-decoration: none; display: block; cursor: pointer;
   }
   .card:hover {
-    border-color: var(--border-accent);
-    background: var(--bg-card-hover);
-    transform: translateY(-2px);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    border-color: var(--border-accent); background: var(--bg-card-hover);
+    transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.3);
   }
-  .card-icon {
-    font-size: 1.5rem;
-    margin-bottom: 0.75rem;
-  }
+  .card-icon { font-size: 1.4rem; margin-bottom: 0.5rem; }
   .card h3 {
-    font-family: var(--font-body);
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 0.5rem;
+    font-family: var(--font-body); font-size: 0.95rem; font-weight: 600;
+    color: var(--text-primary); margin-bottom: 0.4rem;
   }
-  .card p {
-    font-size: 0.85rem;
-    color: var(--text-muted);
-    line-height: 1.7;
-    margin: 0;
+  .card p { font-size: 0.82rem; color: var(--text-muted); line-height: 1.65; margin: 0; }
+  .card-arrow {
+    font-family: var(--font-mono); font-size: 0.7rem; color: var(--accent-cyan);
+    margin-top: 0.75rem; opacity: 0; transition: opacity 0.3s;
   }
+  .card:hover .card-arrow { opacity: 1; }
 
-  /* --- Platform row --- */
-  .platforms {
-    display: flex;
-    gap: 2rem;
-    justify-content: center;
-    flex-wrap: wrap;
-    margin: 2rem 0;
+  /* --- Ecosystem diagram --- */
+  .ecosystem {
+    display: flex; align-items: center; justify-content: center;
+    gap: 1.5rem; margin: 1.5rem 0; flex-wrap: wrap;
   }
-  .platform {
-    text-align: center;
+  .eco-node {
+    text-align: center; flex-shrink: 0;
   }
-  .platform-icon {
-    font-size: 2rem;
-    margin-bottom: 0.5rem;
+  .eco-icon { font-size: 2.2rem; margin-bottom: 0.4rem; }
+  .eco-label {
+    font-family: var(--font-mono); font-size: 0.65rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--text-secondary);
   }
-  .platform-name {
-    font-family: var(--font-mono);
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--text-secondary);
+  .eco-arrow {
+    color: var(--accent-cyan); font-size: 1.6rem; flex-shrink: 0;
+    margin: 0 0.25rem;
+  }
+  .eco-group {
+    display: flex; align-items: center; gap: 1.5rem;
+  }
+  .eco-description {
+    text-align: center; font-size: 0.85rem; color: var(--text-muted);
+    max-width: 520px; margin: 0.75rem auto 0;
   }
 
   /* --- CTA --- */
   .cta-row {
-    display: flex;
-    gap: 1rem;
-    justify-content: center;
-    flex-wrap: wrap;
-    margin: 2.5rem 0;
+    display: flex; gap: 0.75rem; justify-content: center;
+    flex-wrap: wrap; margin: 1.5rem 0;
   }
   .cta {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    letter-spacing: 0.05em;
-    text-decoration: none;
-    padding: 0.75rem 1.75rem;
-    border-radius: 6px;
-    transition: all 0.2s;
+    font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.05em;
+    text-decoration: none; padding: 0.65rem 1.5rem; border-radius: 6px; transition: all 0.2s;
   }
   .cta.primary {
-    background: var(--accent-cyan);
-    color: var(--bg-deep);
-    border: 1px solid var(--accent-cyan);
-    font-weight: 500;
+    background: var(--accent-cyan); color: var(--bg-deep);
+    border: 1px solid var(--accent-cyan); font-weight: 500;
   }
-  .cta.primary:hover {
-    background: transparent;
-    color: var(--accent-cyan);
-  }
+  .cta.primary:hover { background: transparent; color: var(--accent-cyan); }
   .cta.secondary {
-    background: transparent;
-    color: var(--text-secondary);
-    border: 1px solid var(--border);
+    background: transparent; color: var(--text-secondary); border: 1px solid var(--border);
   }
-  .cta.secondary:hover {
-    border-color: var(--text-secondary);
-    color: var(--text-primary);
-  }
+  .cta.secondary:hover { border-color: var(--text-secondary); color: var(--text-primary); }
 
-  /* --- Privacy block --- */
-  .privacy-block {
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 2.5rem;
-    margin: 2rem 0;
-    text-align: center;
-  }
-  .privacy-block h3 {
-    font-family: var(--font-display);
-    font-size: 1.6rem;
-    font-weight: 400;
-    color: var(--text-primary);
-    margin-bottom: 1rem;
-  }
-  .privacy-block p {
-    font-size: 0.95rem;
-    color: var(--text-secondary);
-    max-width: 560px;
-    margin: 0 auto;
-    line-height: 1.8;
-  }
-
-  /* --- Footer --- */
   footer {
-    position: relative;
-    z-index: 1;
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 3rem 2rem 4rem;
-    border-top: 1px solid var(--border);
-    text-align: center;
+    position: relative; z-index: 1; max-width: 960px; margin: 0 auto;
+    padding: 2rem 2rem 3rem; border-top: 1px solid var(--border); text-align: center;
   }
   footer .company {
-    font-family: var(--font-mono);
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    letter-spacing: 0.05em;
-    margin-bottom: 0.5rem;
+    font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted);
+    letter-spacing: 0.05em; margin-bottom: 0.5rem;
   }
-  footer .contact {
-    font-family: var(--font-mono);
-    font-size: 0.65rem;
-    color: var(--text-muted);
-  }
-  footer .contact a {
-    color: var(--accent-cyan);
-    text-decoration: none;
-  }
-  footer .contact a:hover {
-    text-decoration: underline;
-  }
+  footer .contact { font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-muted); }
+  footer .contact a { color: var(--accent-cyan); text-decoration: none; }
+  footer .contact a:hover { text-decoration: underline; }
 
-  /* --- Responsive --- */
   @media (max-width: 768px) {
-    header { padding: 4rem 1.25rem 3rem; }
-    section { padding: 2rem 1.25rem; }
+    header { padding: 2rem 1.25rem 1rem; }
+    section { padding: 1rem 1.25rem; }
     .cards-grid { grid-template-columns: 1fr; }
-    .platforms { gap: 1.25rem; }
+    .ecosystem { gap: 1rem; }
+    .eco-group { gap: 1rem; }
   }
 
-  /* --- Animations --- */
   @keyframes fadeUp {
     from { opacity: 0; transform: translateY(24px); }
     to { opacity: 1; transform: translateY(0); }
@@ -339,131 +173,114 @@
   .d1 { animation-delay: 0.1s; }
   .d2 { animation-delay: 0.2s; }
   .d3 { animation-delay: 0.3s; }
-  .d4 { animation-delay: 0.4s; }
-  .d5 { animation-delay: 0.5s; }
 </style>
 </head>
 <body>
 
 <header>
-  <div class="wordmark animate">Spatial Agents</div>
-  <h1 class="animate d1">Real-Time Geospatial<br><em>Intelligence</em></h1>
-  <p class="subtitle animate d2">
-    Live global awareness across maritime, aviation, and orbital domains —
-    powered by on-device AI, delivered with complete privacy.
+  <h1 class="animate">Spatial Agents <em>Intelligence</em></h1>
+  <p class="subtitle animate d1">
+    Live Data, Causal Graphs, GET 'em <a href="map.html" class="here-btn">here</a>
   </p>
-  <div class="pills animate d3">
-    <span class="pill highlight">On-Device AI</span>
-    <span class="pill">AIS Vessel Tracking</span>
-    <span class="pill">ADS-B Aircraft</span>
-    <span class="pill">Satellite Orbits</span>
-    <span class="pill highlight">Privacy First</span>
-  </div>
 </header>
 
-<section>
-  <div class="divider"></div>
-</section>
+<section><div class="divider"></div></section>
 
-<!-- === WHAT IT DOES === -->
+<!-- === FEATURES === -->
 <section>
-  <div class="section-label animate">Intelligence Platform</div>
-  <h2 class="animate d1">Know the How, Show the Why</h2>
-  <p class="subtitle animate d2" style="margin-bottom: 2rem;">
-    Spatial Agents goes beyond dashboards. It ingests real-time data from
-    public sources, builds causal models of what's happening and why,
-    and generates intelligence reports entirely on your device.
-  </p>
-
-  <div class="cards-grid animate d3">
-    <div class="card">
-      <div class="card-icon">🛰</div>
+  <div class="cards-grid animate d2">
+    <a href="live-feeds.html" class="card">
+      <div class="card-icon">&#x1F6F0;</div>
       <h3>Live Global Feeds</h3>
       <p>AIS maritime tracking, ADS-B aircraft surveillance, and satellite
          orbital data — streaming in real time from public sources worldwide.</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">⬡</div>
+      <div class="card-arrow">Learn more &#8594;</div>
+    </a>
+    <a href="spatial-tiling.html" class="card">
+      <div class="card-icon">&#x2B21;</div>
       <h3>Spatial Tiling</h3>
       <p>Multi-resolution hexagonal indexing organizes the planet into
          queryable cells. Zoom from global overview to berth-level detail.</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">🧠</div>
+      <div class="card-arrow">Learn more &#8594;</div>
+    </a>
+    <a href="on-device-intelligence.html" class="card">
+      <div class="card-icon">&#x1F9E0;</div>
       <h3>On-Device Intelligence</h3>
       <p>Apple Foundation Models generate situation reports, detect anomalies,
          and narrate causal chains — all on-device, all private, all offline-capable.</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">🔗</div>
+      <div class="card-arrow">Learn more &#8594;</div>
+    </a>
+    <a href="causal-reasoning.html" class="card">
+      <div class="card-icon">&#x1F517;</div>
       <h3>Causal Reasoning</h3>
       <p>Structural causal models explain why patterns emerge — not just
          what happened, but the chain of events that led there.</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">🔒</div>
+      <div class="card-arrow">Learn more &#8594;</div>
+    </a>
+    <a href="privacy.html" class="card">
+      <div class="card-icon">&#x1F512;</div>
       <h3>Privacy by Design</h3>
       <p>No cloud processing. No accounts. No tracking. Your queries never
-         leave your device. Intelligence stays where it belongs — with you.</p>
-    </div>
-    <div class="card">
-      <div class="card-icon">⚡</div>
+         leave your device.</p>
+      <div class="card-arrow">Learn more &#8594;</div>
+    </a>
+    <a href="zero-cost.html" class="card">
+      <div class="card-icon">&#x26A1;</div>
       <h3>Zero Inference Cost</h3>
       <p>Apple's on-device model runs free — no API keys, no per-request
-         charges, no usage limits. Unlimited intelligence at no marginal cost.</p>
-    </div>
+         charges, no usage limits.</p>
+      <div class="card-arrow">Learn more &#8594;</div>
+    </a>
   </div>
 </section>
 
-<!-- === PLATFORMS === -->
-<section>
-  <div class="section-label">Apple Platforms</div>
-  <h2>Built for the Ecosystem</h2>
+<section><div class="divider"></div></section>
 
-  <div class="platforms">
-    <div class="platform">
-      <div class="platform-icon">📱</div>
-      <div class="platform-name">iPhone</div>
+<!-- === ECOSYSTEM === -->
+<section>
+  <div class="ecosystem animate d3">
+    <div class="eco-node">
+      <div class="eco-icon">&#x2601;&#xFE0F;</div>
+      <div class="eco-label">Python Pipelines</div>
     </div>
-    <div class="platform">
-      <div class="platform-icon">🥽</div>
-      <div class="platform-name">Vision Pro</div>
-    </div>
-    <div class="platform">
-      <div class="platform-icon">🖥</div>
-      <div class="platform-name">Mac</div>
+    <div class="eco-arrow">&#8594;</div>
+    <div class="eco-group">
+      <div class="eco-node">
+        <div class="eco-icon">&#x1F4F1;</div>
+        <div class="eco-label">iPhone</div>
+      </div>
+      <div class="eco-node">
+        <div class="eco-icon">&#x1F5A5;</div>
+        <div class="eco-label">Mac</div>
+      </div>
+      <div class="eco-node">
+        <div class="eco-icon">&#x1F97D;</div>
+        <div class="eco-label">Vision Pro</div>
+      </div>
     </div>
   </div>
-
-  <p style="text-align: center; font-size: 0.9rem; color: var(--text-muted); max-width: 520px; margin: 1.5rem auto 0;">
-    iPhone and Vision Pro as mobile intelligence surfaces.
-    Mac as the always-on data server powering the ecosystem.
-    Same data, same format, any device.
+  <p class="eco-description">
+    Python pipelines ingest, tile, and serve data. Apple clients receive
+    structured intelligence and run FM evaluation on-device.
   </p>
-</section>
-
-<!-- === PRIVACY === -->
-<section>
-  <div class="privacy-block">
-    <h3>Your data never leaves your device.</h3>
-    <p>
-      Spatial Agents processes public data feeds. The intelligence it generates
-      from that data — the analysis, the reports, the causal reasoning —
-      happens entirely on-device via Apple's Foundation Models. No server
-      sees your queries. No cloud processes your requests.
-    </p>
-  </div>
 </section>
 
 <!-- === LINKS === -->
 <section style="text-align: center;">
   <div class="cta-row">
-    <a href="architecture.html" class="cta primary">View Architecture</a>
+    <a href="map.html" class="cta primary">Live Map</a>
+    <a href="dag.html" class="cta primary">Causal DAG</a>
+    <a href="architecture.html" class="cta secondary">Architecture</a>
+    <a href="https://github.com/speckert/spatial-agents" class="cta secondary">GitHub</a>
   </div>
 </section>
 
-<!-- === FOOTER === -->
 <footer>
   <div class="company">SpeckTech Inc.</div>
   <div class="contact">
-    <a href="/cdn-cgi/l/email-protection#c7b4b7a2a4aca2b5b387b4b7a2a4acb3a2a4afe9a4a8aa"><span class="__cf_
+    <a href="mailto:speckert@specktech.com">speckert@specktech.com</a>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>On-Device Intelligence — Spatial Agents</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #0a0e17; --bg-panel: #111827; --bg-card: #1a2235;
+    --border: #2a3650; --border-accent: #3b82f6;
+    --text-primary: #e2e8f0; --text-secondary: #94a3b8; --text-muted: #64748b;
+    --accent-blue: #3b82f6; --accent-cyan: #06b6d4; --accent-emerald: #10b981;
+    --accent-amber: #f59e0b;
+    --font-display: 'Instrument Serif', serif;
+    --font-body: 'DM Sans', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg-deep); color: var(--text-primary);
+    font-family: var(--font-body); line-height: 1.8; overflow-x: hidden;
+  }
+  body::before {
+    content: ''; position: fixed; top: -30%; left: -10%;
+    width: 70vw; height: 70vh;
+    background: radial-gradient(ellipse, rgba(6,182,212,0.06) 0%, transparent 70%);
+    pointer-events: none; z-index: 0;
+  }
+  .page { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 3rem 2rem 4rem; }
+  .back { font-family: var(--font-mono); font-size: 0.75rem; color: var(--accent-cyan); text-decoration: none; letter-spacing: 0.05em; }
+  .back:hover { text-decoration: underline; }
+  .icon { font-size: 2.5rem; margin: 2rem 0 1rem; }
+  h1 { font-family: var(--font-display); font-size: clamp(2rem, 4vw, 2.8rem); font-weight: 400; line-height: 1.15; margin-bottom: 1rem; }
+  h1 em { font-style: italic; color: var(--accent-cyan); }
+  .lead { font-size: 1.05rem; color: var(--text-secondary); margin-bottom: 2.5rem; }
+  h2 { font-family: var(--font-display); font-size: 1.5rem; font-weight: 400; margin: 2.5rem 0 1rem; color: var(--text-primary); }
+  p { color: var(--text-secondary); margin-bottom: 1.25rem; font-size: 0.95rem; }
+  .info-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1.5rem; margin: 1.5rem 0;
+  }
+  .info-card h3 {
+    font-family: var(--font-mono); font-size: 0.75rem; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--accent-cyan); margin-bottom: 0.75rem;
+  }
+  .info-card p { margin-bottom: 0.5rem; }
+  .info-card p:last-child { margin-bottom: 0; }
+  table {
+    width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.85rem;
+  }
+  th {
+    font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--accent-cyan); text-align: left;
+    padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 0.75rem 1rem; color: var(--text-secondary);
+    border-bottom: 1px solid rgba(42,54,80,0.5);
+  }
+  code {
+    font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent-cyan);
+    background: rgba(6,182,212,0.08); padding: 0.15rem 0.4rem; border-radius: 4px;
+  }
+  .divider { height: 1px; background: linear-gradient(90deg, transparent, var(--border) 20%, var(--border) 80%, transparent); margin: 2.5rem 0; }
+  footer { font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-muted); text-align: center; margin-top: 3rem; }
+  footer a { color: var(--accent-cyan); text-decoration: none; }
+  @media (max-width: 768px) { .page { padding: 2rem 1.25rem 3rem; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+<a href="index.html" class="back">&#8592; Spatial Agents</a>
+<div class="icon">&#x1F9E0;</div>
+<h1>On-Device <em>Intelligence</em></h1>
+<p class="lead">
+  Spatial Agents uses Apple's Foundation Models to generate intelligence
+  products — situation reports, anomaly assessments, and causal narratives —
+  entirely on-device with no cloud dependency.
+</p>
+
+<h2>Token Budget Management</h2>
+<p>
+  On-device models have constrained context windows (4,096 tokens). Every
+  prompt must fit within a strict budget that allocates space for system
+  instructions, tool schemas, data payload, and model response.
+</p>
+<div class="info-card">
+  <h3>Budget Allocation</h3>
+  <p>System instructions: ~30 tokens</p>
+  <p>Tool schemas: ~80-200 tokens</p>
+  <p>Data payload: up to 15% of context window (~614 tokens)</p>
+  <p>Response space: remaining tokens</p>
+</div>
+<p>
+  The budget manager measures token consumption for each component and
+  compresses payloads when they exceed allocation. When the FM SDK is
+  unavailable, it falls back to a conservative 4-characters-per-token estimate.
+</p>
+
+<h2>Prompt Templates</h2>
+<p>
+  Versioned prompt templates are organized by domain. Each template defines
+  system instructions, a user prompt with data placeholders, and an expected
+  output schema.
+</p>
+<table>
+  <tr><th>Template</th><th>Domain</th><th>Purpose</th></tr>
+  <tr><td>Maritime Situation Report</td><td>Maritime</td><td>Vessel activity analysis for an H3 cell</td></tr>
+  <tr><td>Maritime Anomaly Detection</td><td>Maritime</td><td>Dark vessels, loitering, route deviations</td></tr>
+  <tr><td>Aviation Situation Report</td><td>Aviation</td><td>Flight patterns and altitude distributions</td></tr>
+  <tr><td>Causal Graph Narration</td><td>Cross-domain</td><td>Natural language explanation of causal chains</td></tr>
+</table>
+
+<h2>Schema Validation</h2>
+<p>
+  FM outputs are validated against Pydantic schemas before delivery to clients.
+  Semantic checks verify that summaries meet minimum length, observations are
+  present, and confidence scores are within valid ranges. Invalid outputs are
+  rejected with detailed error messages.
+</p>
+
+<h2>Evaluation Harness</h2>
+<p>
+  The eval harness supports two modes: live evaluation using the FM SDK and
+  dry-run mode that renders prompts, measures tokens, and validates structure
+  without calling the model. This enables regression testing across model
+  versions and development without hardware dependencies.
+</p>
+
+<div class="divider"></div>
+
+<h2>API Access</h2>
+<table>
+  <tr><th>Endpoint</th><th>Returns</th></tr>
+  <tr><td><code>/api/intelligence/{h3_cell}</code></td><td>FM situation report with activity summary</td></tr>
+  <tr><td><code>/api/budget</code></td><td>Current token budget allocation</td></tr>
+</table>
+
+<footer>
+  <a href="index.html">Home</a> &middot; <a href="map.html">Live Map</a> &middot; <a href="dag.html">Causal DAG</a> &middot; <a href="architecture.html">Architecture</a> &middot; SpeckTech Inc.
+</footer>
+
+</div>
+</body>
+</html>

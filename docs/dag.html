@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Causal DAG — Spatial Agents</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #0a0e17; --bg-panel: rgba(17,24,39,0.92); --bg-card: #1a2235;
+    --border: #2a3650; --border-accent: #3b82f6;
+    --text-primary: #e2e8f0; --text-secondary: #94a3b8; --text-muted: #64748b;
+    --accent-blue: #3b82f6; --accent-cyan: #06b6d4; --accent-emerald: #10b981;
+    --accent-amber: #f59e0b; --accent-rose: #f43f5e; --accent-violet: #8b5cf6;
+    --font-body: 'DM Sans', sans-serif; --font-mono: 'DM Mono', monospace;
+    --font-display: 'Instrument Serif', serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg-deep); color: var(--text-primary); font-family: var(--font-body); overflow: hidden; }
+
+  .header {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+    background: var(--bg-panel); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.6rem 1.25rem; height: 48px;
+  }
+  .header-left { display: flex; align-items: center; gap: 1rem; }
+  .header-title {
+    font-family: var(--font-mono); font-size: 0.75rem; font-weight: 500;
+    color: var(--accent-cyan); letter-spacing: 0.08em; text-transform: uppercase;
+    text-decoration: none;
+  }
+  .header-title:hover { text-decoration: underline; }
+  .header-subtitle { font-size: 0.8rem; color: var(--text-muted); }
+  .header-right { display: flex; align-items: center; gap: 0.75rem; }
+  .btn {
+    font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.05em;
+    padding: 0.4rem 0.9rem; border-radius: 5px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-secondary); cursor: pointer;
+    transition: all 0.2s; text-decoration: none;
+  }
+  .btn:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+  .btn.active { border-color: var(--accent-cyan); color: var(--accent-cyan); background: rgba(6,182,212,0.1); }
+  .status {
+    font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted);
+  }
+
+  canvas { display: block; }
+
+  /* --- Info panel --- */
+  .info-panel {
+    position: absolute; top: 64px; right: 1.25rem; z-index: 10;
+    background: var(--bg-panel); backdrop-filter: blur(12px);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 1.25rem 1.5rem; width: 300px; display: none;
+  }
+  .info-panel.visible { display: block; }
+  .info-panel h3 {
+    font-size: 0.9rem; font-weight: 600; color: var(--text-primary);
+    margin-bottom: 0.75rem;
+  }
+  .info-panel p {
+    font-size: 0.8rem; color: var(--text-secondary); line-height: 1.6;
+    margin-bottom: 0.5rem;
+  }
+  .info-panel .tag {
+    display: inline-block; font-family: var(--font-mono); font-size: 0.65rem;
+    padding: 0.2rem 0.5rem; border-radius: 4px; margin-right: 0.25rem;
+    background: rgba(6,182,212,0.1); color: var(--accent-cyan);
+    border: 1px solid rgba(6,182,212,0.2);
+  }
+  .info-close {
+    position: absolute; top: 0.5rem; right: 0.75rem;
+    background: none; border: none; color: var(--text-muted);
+    font-size: 1.1rem; cursor: pointer;
+  }
+  .info-close:hover { color: var(--text-primary); }
+
+  /* --- Legend --- */
+  .legend {
+    position: absolute; bottom: 1.5rem; left: 1.25rem; z-index: 10;
+    background: var(--bg-panel); backdrop-filter: blur(12px);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.75rem 1rem; font-size: 0.7rem;
+  }
+  .legend-title {
+    font-family: var(--font-mono); font-size: 0.65rem; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--accent-cyan); margin-bottom: 0.5rem;
+  }
+  .legend-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.2rem 0; color: var(--text-secondary); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  /* --- Intervention panel --- */
+  .interventions {
+    position: absolute; bottom: 1.5rem; right: 1.25rem; z-index: 10;
+    background: var(--bg-panel); backdrop-filter: blur(12px);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 1rem 1.25rem; width: 320px; max-height: 240px; overflow-y: auto;
+    display: none;
+  }
+  .interventions.visible { display: block; }
+  .interventions h4 {
+    font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--accent-cyan); margin-bottom: 0.5rem;
+  }
+  .intervention-item {
+    font-size: 0.8rem; color: var(--text-secondary); padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(42,54,80,0.4); line-height: 1.5;
+  }
+  .intervention-item:last-child { border-bottom: none; }
+  .intervention-item strong { color: var(--accent-amber); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <a href="index.html" class="header-title">Spatial Agents</a>
+    <span class="header-subtitle">Causal DAG Viewer</span>
+  </div>
+  <div class="header-right">
+    <span class="status" id="status">Demo scenario</span>
+    <button class="btn active" id="btn-demo" onclick="loadDemo()">Demo</button>
+    <button class="btn" id="btn-live" onclick="loadLive()">Live</button>
+    <a href="map.html" class="btn">Live Map</a>
+    <a href="index.html" class="btn">Overview</a>
+  </div>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<div class="info-panel" id="info">
+  <button class="info-close" onclick="document.getElementById('info').classList.remove('visible')">&times;</button>
+  <h3 id="info-title">—</h3>
+  <p id="info-desc"></p>
+  <div id="info-tags"></div>
+</div>
+
+<div class="legend">
+  <div class="legend-title">Event Types</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>Weather</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f43f5e"></div>Vessel Loitering</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div>Dark Vessel Gap</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div>Density Anomaly</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div>Ground Stop</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#64748b"></div>Other</div>
+</div>
+
+<div class="interventions" id="interventions">
+  <h4>Counterfactual Interventions</h4>
+  <div id="intervention-list"></div>
+</div>
+
+<script>
+const API = window.location.hostname === 'agents.specktech.com' ? '' : 'http://127.0.0.1:8012';
+
+const TYPE_COLORS = {
+  weather_event: '#f59e0b',
+  vessel_loitering: '#f43f5e',
+  dark_vessel_gap: '#8b5cf6',
+  density_anomaly_high: '#3b82f6',
+  density_anomaly_low: '#3b82f6',
+  ground_stop_indicator: '#10b981',
+};
+
+// --- Demo scenario: SF Bay weather event cascade ---
+const DEMO_DATA = {
+  h3_cell: '832830fffffffff',
+  nodes: [
+    { id: 'e0_weather', event_type: 'weather_event', label: 'Fog advisory — SF Bay visibility < 0.5 nm', observed_value: 0.85, timestamp: '2026-03-30T08:00:00Z', domain: 'maritime' },
+    { id: 'e1_loiter_a', event_type: 'vessel_loitering', label: '3 container vessels anchored outside Golden Gate', observed_value: 0.72, timestamp: '2026-03-30T08:45:00Z', domain: 'maritime' },
+    { id: 'e2_density', event_type: 'density_anomaly_high', label: 'Oakland approach density 2.4 std above mean', observed_value: 0.68, timestamp: '2026-03-30T09:15:00Z', domain: 'maritime' },
+    { id: 'e3_dark', event_type: 'dark_vessel_gap', label: 'MMSI 211234567 — 42 min AIS silence in channel', observed_value: 0.61, timestamp: '2026-03-30T09:30:00Z', domain: 'maritime' },
+    { id: 'e4_loiter_b', event_type: 'vessel_loitering', label: '2 tankers holding at anchorage Alpha', observed_value: 0.55, timestamp: '2026-03-30T10:00:00Z', domain: 'maritime' },
+    { id: 'e5_ground', event_type: 'ground_stop_indicator', label: 'SFO ground delay — 78% aircraft on ground', observed_value: 0.82, timestamp: '2026-03-30T08:30:00Z', domain: 'aviation' },
+    { id: 'e6_air_density', event_type: 'density_anomaly_high', label: 'SFO terminal area aircraft density +2.1 std', observed_value: 0.71, timestamp: '2026-03-30T09:00:00Z', domain: 'aviation' },
+  ],
+  edges: [
+    { source: 'e0_weather', target: 'e1_loiter_a', strength: 0.82, mechanism: 'Fog advisory causes vessels to anchor outside the strait' },
+    { source: 'e0_weather', target: 'e5_ground', strength: 0.78, mechanism: 'Low visibility triggers SFO ground delay program' },
+    { source: 'e0_weather', target: 'e2_density', strength: 0.54, mechanism: 'Weather delays increase vessel density at approaches' },
+    { source: 'e1_loiter_a', target: 'e2_density', strength: 0.61, mechanism: 'Anchored vessels contribute to Oakland approach congestion' },
+    { source: 'e2_density', target: 'e4_loiter_b', strength: 0.58, mechanism: 'High density at Oakland causes tankers to hold at anchorage' },
+    { source: 'e1_loiter_a', target: 'e3_dark', strength: 0.35, mechanism: 'Vessel may have disabled AIS during congested anchorage period' },
+    { source: 'e5_ground', target: 'e6_air_density', strength: 0.73, mechanism: 'Ground stop causes aircraft accumulation at terminal' },
+  ],
+  interventions: [
+    { intervention: 'do(e0_weather = 0)', description: 'If the fog event had not occurred: loitering, density anomaly, ground stop, and dark gap would all be eliminated or significantly reduced. Estimated 5 downstream events affected.' },
+    { intervention: 'do(e5_ground = 0)', description: 'If the ground stop had not been issued: terminal aircraft density would return to baseline. Maritime events unaffected (independent causal path from weather).' },
+    { intervention: 'do(e1_loiter_a = 0)', description: 'If the container vessels had not anchored: Oakland density anomaly reduced by ~60%. Dark gap event confidence drops below detection threshold.' },
+  ],
+  generated_at: new Date().toISOString(),
+};
+
+// --- Graph layout & rendering ---
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W, H, dpr;
+let nodes = [], edges = [], interventionData = [];
+let hoveredNode = null, selectedNode = null;
+let drag = null, panX = 0, panY = 0;
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', () => { resize(); draw(); });
+resize();
+
+function layoutNodes(data) {
+  const n = data.nodes.length;
+  const cx = W / 2, cy = H / 2;
+
+  // Topological sort for vertical layering
+  const adj = {};
+  const indegree = {};
+  data.nodes.forEach(nd => { adj[nd.id] = []; indegree[nd.id] = 0; });
+  data.edges.forEach(e => {
+    if (adj[e.source]) adj[e.source].push(e.target);
+    if (indegree[e.target] !== undefined) indegree[e.target]++;
+  });
+
+  // BFS layers
+  const layers = [];
+  const queue = Object.keys(indegree).filter(k => indegree[k] === 0);
+  const visited = new Set();
+  while (queue.length) {
+    const layer = [];
+    const nextQueue = [];
+    for (const id of queue) {
+      if (visited.has(id)) continue;
+      visited.add(id);
+      layer.push(id);
+      for (const tgt of (adj[id] || [])) {
+        indegree[tgt]--;
+        if (indegree[tgt] <= 0 && !visited.has(tgt)) nextQueue.push(tgt);
+      }
+    }
+    if (layer.length) layers.push(layer);
+    queue.length = 0;
+    queue.push(...nextQueue);
+  }
+  // Add any remaining nodes
+  data.nodes.forEach(nd => { if (!visited.has(nd.id)) { layers.push([nd.id]); visited.add(nd.id); }});
+
+  const layerH = Math.min(120, (H - 160) / Math.max(layers.length, 1));
+  const startY = 100;
+
+  const nodeMap = {};
+  data.nodes.forEach(nd => { nodeMap[nd.id] = nd; });
+
+  nodes = [];
+  layers.forEach((layer, li) => {
+    const layerW = Math.min(200, (W - 200) / Math.max(layer.length, 1));
+    const startX = cx - ((layer.length - 1) * layerW) / 2;
+    layer.forEach((id, ni) => {
+      const nd = nodeMap[id];
+      if (!nd) return;
+      nodes.push({
+        ...nd,
+        x: startX + ni * layerW,
+        y: startY + li * layerH,
+        r: 18 + (nd.observed_value || 0.5) * 14,
+        color: TYPE_COLORS[nd.event_type] || '#64748b',
+      });
+    });
+  });
+
+  edges = data.edges.map(e => ({
+    ...e,
+    from: nodes.find(nd => nd.id === e.source),
+    to: nodes.find(nd => nd.id === e.target),
+  })).filter(e => e.from && e.to);
+
+  interventionData = data.interventions || [];
+}
+
+function drawArrow(x1, y1, x2, y2, r2, strength, highlighted) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist < 1) return;
+  const nx = dx/dist, ny = dy/dist;
+  const ex = x2 - nx * (r2 + 4), ey = y2 - ny * (r2 + 4);
+
+  ctx.beginPath();
+  ctx.moveTo(x1 + nx * (r2 + 4), y1 + ny * (r2 + 4));
+  ctx.lineTo(ex, ey);
+  ctx.strokeStyle = highlighted
+    ? `rgba(6,182,212,${0.5 + strength * 0.5})`
+    : `rgba(148,163,184,${0.15 + strength * 0.25})`;
+  ctx.lineWidth = highlighted ? 1.5 + strength * 2.5 : 0.8 + strength * 1.5;
+  ctx.stroke();
+
+  // Arrowhead
+  const aLen = 8 + strength * 4;
+  const aAng = 0.4;
+  ctx.beginPath();
+  ctx.moveTo(ex, ey);
+  ctx.lineTo(ex - aLen * Math.cos(Math.atan2(dy,dx) - aAng), ey - aLen * Math.sin(Math.atan2(dy,dx) - aAng));
+  ctx.moveTo(ex, ey);
+  ctx.lineTo(ex - aLen * Math.cos(Math.atan2(dy,dx) + aAng), ey - aLen * Math.sin(Math.atan2(dy,dx) + aAng));
+  ctx.strokeStyle = highlighted
+    ? `rgba(6,182,212,${0.6 + strength * 0.4})`
+    : `rgba(148,163,184,${0.2 + strength * 0.3})`;
+  ctx.lineWidth = highlighted ? 2 : 1.2;
+  ctx.stroke();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  const sel = selectedNode || hoveredNode;
+  const connectedIds = new Set();
+  if (sel) {
+    edges.forEach(e => {
+      if (e.from.id === sel.id || e.to.id === sel.id) {
+        connectedIds.add(e.from.id);
+        connectedIds.add(e.to.id);
+      }
+    });
+  }
+
+  // Edges
+  edges.forEach(e => {
+    const hl = sel && (e.from.id === sel.id || e.to.id === sel.id);
+    const dimmed = sel && !hl;
+    if (!dimmed) {
+      drawArrow(e.from.x, e.from.y, e.to.x, e.to.y, e.to.r, e.strength, hl);
+    }
+  });
+  // Dimmed edges
+  if (sel) {
+    edges.forEach(e => {
+      const hl = e.from.id === sel.id || e.to.id === sel.id;
+      if (!hl) {
+        ctx.globalAlpha = 0.2;
+        drawArrow(e.from.x, e.from.y, e.to.x, e.to.y, e.to.r, e.strength, false);
+        ctx.globalAlpha = 1;
+      }
+    });
+  }
+
+  // Nodes
+  nodes.forEach(nd => {
+    const isSelected = sel && nd.id === sel.id;
+    const isConnected = sel && connectedIds.has(nd.id);
+    const dimmed = sel && !isSelected && !isConnected;
+
+    ctx.globalAlpha = dimmed ? 0.25 : 1;
+
+    // Glow
+    const grad = ctx.createRadialGradient(nd.x, nd.y, nd.r * 0.3, nd.x, nd.y, nd.r * 2.2);
+    grad.addColorStop(0, nd.color + '30');
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(nd.x, nd.y, nd.r * 2.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Circle
+    ctx.beginPath();
+    ctx.arc(nd.x, nd.y, nd.r, 0, Math.PI * 2);
+    ctx.fillStyle = nd.color + (isSelected ? 'dd' : '99');
+    ctx.fill();
+    if (isSelected || nd === hoveredNode) {
+      ctx.strokeStyle = nd.color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Confidence text
+    ctx.fillStyle = '#fff';
+    ctx.font = `500 ${Math.round(nd.r * 0.6)}px "DM Mono"`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(((nd.observed_value || 0) * 100).toFixed(0) + '%', nd.x, nd.y);
+
+    // Label
+    ctx.fillStyle = dimmed ? 'rgba(148,163,184,0.3)' : '#94a3b8';
+    ctx.font = '11px "DM Sans"';
+    ctx.textAlign = 'center';
+    const labelText = nd.label.length > 40 ? nd.label.slice(0, 38) + '...' : nd.label;
+    ctx.fillText(labelText, nd.x, nd.y + nd.r + 16);
+
+    ctx.globalAlpha = 1;
+  });
+}
+
+// --- Interaction ---
+function getNodeAt(mx, my) {
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const nd = nodes[i];
+    const dx = mx - nd.x, dy = my - nd.y;
+    if (dx*dx + dy*dy <= (nd.r + 4) * (nd.r + 4)) return nd;
+  }
+  return null;
+}
+
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const nd = getNodeAt(mx, my);
+  hoveredNode = nd;
+  canvas.style.cursor = nd ? 'pointer' : 'default';
+  draw();
+});
+
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const nd = getNodeAt(mx, my);
+  selectedNode = nd;
+  if (nd) showInfo(nd);
+  else document.getElementById('info').classList.remove('visible');
+  draw();
+});
+
+function showInfo(nd) {
+  document.getElementById('info-title').textContent = nd.label;
+  const connEdges = edges.filter(e => e.from.id === nd.id || e.to.id === nd.id);
+  const causes = connEdges.filter(e => e.to.id === nd.id).map(e =>
+    `<strong>${e.from.label.split(' — ')[0]}</strong> (${(e.strength * 100).toFixed(0)}%): ${e.mechanism}`
+  );
+  const effects = connEdges.filter(e => e.from.id === nd.id).map(e =>
+    `<strong>${e.to.label.split(' — ')[0]}</strong> (${(e.strength * 100).toFixed(0)}%): ${e.mechanism}`
+  );
+  let desc = '';
+  if (causes.length) desc += '<em style="color:var(--accent-cyan);font-size:0.7rem">CAUSED BY</em><br>' + causes.join('<br>') + '<br>';
+  if (effects.length) desc += '<br><em style="color:var(--accent-amber);font-size:0.7rem">CAUSES</em><br>' + effects.join('<br>');
+  if (!causes.length && !effects.length) desc = 'No causal connections.';
+  document.getElementById('info-desc').innerHTML = desc;
+  document.getElementById('info-tags').innerHTML =
+    `<span class="tag">${nd.event_type}</span>` +
+    `<span class="tag">${nd.domain}</span>` +
+    `<span class="tag">conf: ${((nd.observed_value||0)*100).toFixed(0)}%</span>`;
+  document.getElementById('info').classList.add('visible');
+}
+
+function showInterventions(data) {
+  const list = document.getElementById('intervention-list');
+  if (!data.length) { document.getElementById('interventions').classList.remove('visible'); return; }
+  list.innerHTML = data.map(iv =>
+    `<div class="intervention-item"><strong>${iv.intervention}</strong><br>${iv.description}</div>`
+  ).join('');
+  document.getElementById('interventions').classList.add('visible');
+}
+
+// --- Load functions ---
+function loadDemo() {
+  document.getElementById('btn-demo').classList.add('active');
+  document.getElementById('btn-live').classList.remove('active');
+  document.getElementById('status').textContent = 'Demo scenario';
+  layoutNodes(DEMO_DATA);
+  showInterventions(DEMO_DATA.interventions);
+  draw();
+}
+
+async function loadLive() {
+  document.getElementById('btn-live').classList.add('active');
+  document.getElementById('btn-demo').classList.remove('active');
+  document.getElementById('status').textContent = 'Loading...';
+
+  try {
+    const res = await fetch(`${API}/api/causal/832830fffffffff?resolution=3`);
+    const data = await res.json();
+    if (data.message && data.message.includes('No significant')) {
+      document.getElementById('status').textContent = `No events (${data.events_checked} entities checked)`;
+      nodes = []; edges = []; interventionData = [];
+      document.getElementById('interventions').classList.remove('visible');
+      draw();
+      // Show empty state
+      ctx.fillStyle = '#64748b';
+      ctx.font = '14px "DM Sans"';
+      ctx.textAlign = 'center';
+      ctx.fillText('No causal events detected in the current data.', W/2, H/2 - 10);
+      ctx.font = '12px "DM Sans"';
+      ctx.fillText(`${data.events_checked} entities checked — try the Demo view for an example.`, W/2, H/2 + 16);
+      return;
+    }
+    // Live data has events
+    const graphData = {
+      h3_cell: data.h3_cell,
+      nodes: data.nodes || [],
+      edges: data.edges || [],
+      interventions: data.interventions || [],
+      generated_at: data.generated_at,
+    };
+    document.getElementById('status').textContent = `Live — ${graphData.nodes.length} events`;
+    layoutNodes(graphData);
+    showInterventions(graphData.interventions);
+    draw();
+  } catch (e) {
+    document.getElementById('status').textContent = 'API error';
+    console.error(e);
+  }
+}
+
+// Init
+loadDemo();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy by Design — Spatial Agents</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #0a0e17; --bg-panel: #111827; --bg-card: #1a2235;
+    --border: #2a3650; --border-accent: #3b82f6;
+    --text-primary: #e2e8f0; --text-secondary: #94a3b8; --text-muted: #64748b;
+    --accent-blue: #3b82f6; --accent-cyan: #06b6d4; --accent-emerald: #10b981;
+    --accent-amber: #f59e0b;
+    --font-display: 'Instrument Serif', serif;
+    --font-body: 'DM Sans', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg-deep); color: var(--text-primary);
+    font-family: var(--font-body); line-height: 1.8; overflow-x: hidden;
+  }
+  body::before {
+    content: ''; position: fixed; top: -30%; left: -10%;
+    width: 70vw; height: 70vh;
+    background: radial-gradient(ellipse, rgba(6,182,212,0.06) 0%, transparent 70%);
+    pointer-events: none; z-index: 0;
+  }
+  .page { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 3rem 2rem 4rem; }
+  .back { font-family: var(--font-mono); font-size: 0.75rem; color: var(--accent-cyan); text-decoration: none; letter-spacing: 0.05em; }
+  .back:hover { text-decoration: underline; }
+  .icon { font-size: 2.5rem; margin: 2rem 0 1rem; }
+  h1 { font-family: var(--font-display); font-size: clamp(2rem, 4vw, 2.8rem); font-weight: 400; line-height: 1.15; margin-bottom: 1rem; }
+  h1 em { font-style: italic; color: var(--accent-cyan); }
+  .lead { font-size: 1.05rem; color: var(--text-secondary); margin-bottom: 2.5rem; }
+  h2 { font-family: var(--font-display); font-size: 1.5rem; font-weight: 400; margin: 2.5rem 0 1rem; color: var(--text-primary); }
+  p { color: var(--text-secondary); margin-bottom: 1.25rem; font-size: 0.95rem; }
+  .info-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1.5rem; margin: 1.5rem 0;
+  }
+  .info-card h3 {
+    font-family: var(--font-mono); font-size: 0.75rem; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--accent-cyan); margin-bottom: 0.75rem;
+  }
+  .info-card p { margin-bottom: 0.5rem; }
+  .info-card p:last-child { margin-bottom: 0; }
+  .highlight-block {
+    background: var(--bg-panel); border: 1px solid var(--border); border-left: 3px solid var(--accent-cyan);
+    border-radius: 0 10px 10px 0; padding: 1.5rem 1.75rem; margin: 1.5rem 0;
+    font-size: 1.05rem; color: var(--text-primary); line-height: 1.7;
+  }
+  .divider { height: 1px; background: linear-gradient(90deg, transparent, var(--border) 20%, var(--border) 80%, transparent); margin: 2.5rem 0; }
+  footer { font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-muted); text-align: center; margin-top: 3rem; }
+  footer a { color: var(--accent-cyan); text-decoration: none; }
+  @media (max-width: 768px) { .page { padding: 2rem 1.25rem 3rem; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+<a href="index.html" class="back">&#8592; Spatial Agents</a>
+<div class="icon">&#x1F512;</div>
+<h1>Privacy by <em>Design</em></h1>
+<p class="lead">
+  Spatial Agents is architected so that intelligence generation happens
+  entirely on your device. This isn't a policy choice — it's a structural
+  guarantee built into the system design.
+</p>
+
+<div class="highlight-block">
+  Your queries, your analysis, and your intelligence products never leave
+  your device. There is no server to send them to.
+</div>
+
+<h2>How It Works</h2>
+<p>
+  The data pipeline has two distinct phases with very different privacy
+  properties:
+</p>
+
+<div class="info-card">
+  <h3>Phase 1 — Public Data Ingestion</h3>
+  <p>AIS vessel positions, ADS-B aircraft states, and satellite orbital
+     elements are public data feeds. This data is broadcast openly and
+     received by anyone with a radio or internet connection. Ingesting
+     it creates no privacy concern.</p>
+</div>
+
+<div class="info-card">
+  <h3>Phase 2 — Intelligence Generation</h3>
+  <p>Situation reports, anomaly detection, and causal reasoning are generated
+     by Apple's on-device Foundation Models. The model runs locally on
+     your iPhone, Mac, or Vision Pro. Prompts are never sent to a server.
+     Results are never uploaded.</p>
+</div>
+
+<h2>No Accounts</h2>
+<p>
+  Spatial Agents does not require user accounts, login, or authentication.
+  There is no user database. There are no analytics. There is no telemetry.
+  The app does not know who you are.
+</p>
+
+<h2>No Cloud Processing</h2>
+<p>
+  The optional Mac server tier runs on your own hardware (your Mac on your
+  network). It serves data to your own devices. Even in this configuration,
+  intelligence generation happens on-device — the server provides raw data,
+  not analysis.
+</p>
+
+<h2>Open Source</h2>
+<p>
+  The entire server-side codebase is open source under the MIT license. You
+  can audit every line of code that runs on your hardware. There are no
+  obfuscated binaries, no proprietary backends, and no third-party services
+  beyond the public data feeds themselves.
+</p>
+
+<div class="divider"></div>
+
+<h2>What Data Leaves Your Device</h2>
+<div class="info-card">
+  <h3>Outbound Connections</h3>
+  <p><strong>AIS feed:</strong> WebSocket connection to aisstream.io — sends your API key and bounding box subscription. Receives vessel positions.</p>
+  <p><strong>ADS-B feed:</strong> HTTPS requests to OpenSky Network — sends bounding box coordinates. Receives aircraft states.</p>
+  <p><strong>Nothing else.</strong> No analytics, no crash reports, no usage metrics, no telemetry of any kind.</p>
+</div>
+
+<footer>
+  <a href="index.html">Home</a> &middot; <a href="map.html">Live Map</a> &middot; <a href="dag.html">Causal DAG</a> &middot; <a href="architecture.html">Architecture</a> &middot; SpeckTech Inc.
+</footer>
+
+</div>
+</body>
+</html>

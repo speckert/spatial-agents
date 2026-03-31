@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Causal Reasoning — Spatial Agents</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #0a0e17; --bg-panel: #111827; --bg-card: #1a2235;
+    --border: #2a3650; --border-accent: #3b82f6;
+    --text-primary: #e2e8f0; --text-secondary: #94a3b8; --text-muted: #64748b;
+    --accent-blue: #3b82f6; --accent-cyan: #06b6d4; --accent-emerald: #10b981;
+    --accent-amber: #f59e0b;
+    --font-display: 'Instrument Serif', serif;
+    --font-body: 'DM Sans', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg-deep); color: var(--text-primary);
+    font-family: var(--font-body); line-height: 1.8; overflow-x: hidden;
+  }
+  body::before {
+    content: ''; position: fixed; top: -30%; left: -10%;
+    width: 70vw; height: 70vh;
+    background: radial-gradient(ellipse, rgba(6,182,212,0.06) 0%, transparent 70%);
+    pointer-events: none; z-index: 0;
+  }
+  .page { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 3rem 2rem 4rem; }
+  .back { font-family: var(--font-mono); font-size: 0.75rem; color: var(--accent-cyan); text-decoration: none; letter-spacing: 0.05em; }
+  .back:hover { text-decoration: underline; }
+  .icon { font-size: 2.5rem; margin: 2rem 0 1rem; }
+  h1 { font-family: var(--font-display); font-size: clamp(2rem, 4vw, 2.8rem); font-weight: 400; line-height: 1.15; margin-bottom: 1rem; }
+  h1 em { font-style: italic; color: var(--accent-cyan); }
+  .lead { font-size: 1.05rem; color: var(--text-secondary); margin-bottom: 2.5rem; }
+  h2 { font-family: var(--font-display); font-size: 1.5rem; font-weight: 400; margin: 2.5rem 0 1rem; color: var(--text-primary); }
+  p { color: var(--text-secondary); margin-bottom: 1.25rem; font-size: 0.95rem; }
+  .info-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1.5rem; margin: 1.5rem 0;
+  }
+  .info-card h3 {
+    font-family: var(--font-mono); font-size: 0.75rem; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--accent-cyan); margin-bottom: 0.75rem;
+  }
+  .info-card p { margin-bottom: 0.5rem; }
+  .info-card p:last-child { margin-bottom: 0; }
+  table {
+    width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.85rem;
+  }
+  th {
+    font-family: var(--font-mono); font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--accent-cyan); text-align: left;
+    padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 0.75rem 1rem; color: var(--text-secondary);
+    border-bottom: 1px solid rgba(42,54,80,0.5);
+  }
+  code {
+    font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent-cyan);
+    background: rgba(6,182,212,0.08); padding: 0.15rem 0.4rem; border-radius: 4px;
+  }
+  .pipeline { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 1.5rem 0; }
+  .pipeline-step {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.75rem 1.25rem; font-family: var(--font-mono); font-size: 0.8rem;
+    color: var(--text-primary);
+  }
+  .pipeline-arrow { color: var(--accent-cyan); font-size: 1.2rem; }
+  .divider { height: 1px; background: linear-gradient(90deg, transparent, var(--border) 20%, var(--border) 80%, transparent); margin: 2.5rem 0; }
+  footer { font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-muted); text-align: center; margin-top: 3rem; }
+  footer a { color: var(--accent-cyan); text-decoration: none; }
+  @media (max-width: 768px) { .page { padding: 2rem 1.25rem 3rem; } .pipeline { flex-direction: column; align-items: flex-start; } .pipeline-arrow { transform: rotate(90deg); } }
+</style>
+</head>
+<body>
+<div class="page">
+
+<a href="index.html" class="back">&#8592; Spatial Agents</a>
+<div class="icon">&#x1F517;</div>
+<h1>Causal <em>Reasoning</em></h1>
+<p class="lead">
+  Beyond pattern detection, Spatial Agents builds structural causal models
+  that explain <em>why</em> events happen — using Judea Pearl's SCM framework
+  and do-calculus for counterfactual reasoning.
+</p>
+
+<h2>The Pipeline</h2>
+<div class="pipeline">
+  <div class="pipeline-step">Event Detection</div>
+  <span class="pipeline-arrow">&#8594;</span>
+  <div class="pipeline-step">DAG Construction</div>
+  <span class="pipeline-arrow">&#8594;</span>
+  <div class="pipeline-step">Interventions</div>
+  <span class="pipeline-arrow">&#8594;</span>
+  <div class="pipeline-step">FM Narration</div>
+</div>
+
+<h2>Step 1: Event Detection</h2>
+<p>
+  Behavioral patterns are detected from live position data. Each detected event
+  carries a confidence score, the entities involved, the H3 cell where it
+  occurred, and supporting metrics.
+</p>
+<table>
+  <tr><th>Event Type</th><th>Domain</th><th>Detection Logic</th></tr>
+  <tr><td>Vessel Loitering</td><td>Maritime</td><td>Speed &lt; 2.0 knots across multiple reports</td></tr>
+  <tr><td>Dark Vessel Gap</td><td>Maritime</td><td>&gt; 15 minutes of silence in track history</td></tr>
+  <tr><td>Density Anomaly</td><td>Both</td><td>Z-score &ge; 2.0 vs. historical baseline</td></tr>
+  <tr><td>Ground Stop</td><td>Aviation</td><td>&gt; 70% of aircraft on ground (min 5)</td></tr>
+</table>
+
+<h2>Step 2: DAG Construction</h2>
+<p>
+  Detected events become nodes in a directed acyclic graph. Edges are
+  discovered by matching event pairs against a domain knowledge rule base that
+  encodes known causal relationships — for example, "adverse weather causes
+  vessel loitering."
+</p>
+<div class="info-card">
+  <h3>Edge Strength Calculation</h3>
+  <p><code>strength = base_strength &times; temporal_decay &times; confidence_factor</code></p>
+  <p>Temporal decay penalizes events that are far apart in time (max gap: 6 hours).
+     Confidence factor is the geometric mean of both events' confidence scores.
+     Edges below strength 0.1 are discarded.</p>
+</div>
+<p>
+  The graph is verified for acyclicity after each edge addition using NetworkX.
+  This ensures the causal structure is always a valid DAG suitable for
+  do-calculus operations.
+</p>
+
+<h2>Step 3: Counterfactual Interventions</h2>
+<p>
+  Pearl's do-operator enables "what if" reasoning. Given a causal graph, the
+  intervention engine can answer questions like: "If the weather event had not
+  occurred, would the loitering still have happened?"
+</p>
+<div class="info-card">
+  <h3>How It Works</h3>
+  <p>1. Mutilate the graph — remove all incoming edges to the intervention target</p>
+  <p>2. Force the target node to a counterfactual value (typically zero)</p>
+  <p>3. Propagate effects through all descendants along causal paths</p>
+  <p>4. Report which downstream events would be affected and by how much</p>
+</div>
+
+<h2>Step 4: FM Narration</h2>
+<p>
+  The causal graph is serialized into a compact, token-efficient format and
+  passed to the on-device Foundation Model. The FM generates a natural language
+  narrative explaining the causal chain — turning graph structure into
+  human-readable intelligence.
+</p>
+
+<div class="divider"></div>
+
+<h2>API Access</h2>
+<table>
+  <tr><th>Endpoint</th><th>Returns</th></tr>
+  <tr><td><code>/api/causal/{h3_cell}</code></td><td>Full causal graph with nodes, edges, and interventions</td></tr>
+  <tr><td><code>/api/causal/{h3_cell}?compact=true</code></td><td>Token-optimized compact format</td></tr>
+</table>
+
+<footer>
+  <a href="index.html">Home</a> &middot; <a href="map.html">Live Map</a> &middot; <a href="dag.html">Causal DAG</a> &middot; <a href="architecture.html">Architecture</a> &middot; SpeckTech Inc.
+</footer>
+
+</div>
+</body>
+</html>
