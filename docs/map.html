@@ -106,6 +106,7 @@
     color: var(--text-secondary);
   }
   .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .legend-svg { width: 14px; height: 14px; flex-shrink: 0; }
   .legend-plane-icon { width: 14px; flex-shrink: 0; font-size: 14px; line-height: 1; text-align: center; }
 
   .trail-toggle {
@@ -164,13 +165,13 @@
 
 <div class="legend">
   <div class="legend-section">Vessels</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#f43f5e"></div>Tanker</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div>Cargo</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div>Passenger</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>Tug</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div>Fishing</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#06b6d4"></div>Other</div>
-  <div class="legend-item"><div class="legend-dot" style="background:#64748b"></div>Unknown</div>
+  <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#f43f5e"/></svg>Tanker</div>
+  <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#3b82f6"/></svg>Cargo</div>
+  <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#10b981"/></svg>Passenger</div>
+  <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#f59e0b"/></svg>Tug</div>
+  <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#8b5cf6"/></svg>Fishing</div>
+  <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#06b6d4"/></svg>Other</div>
+  <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#64748b"/></svg>Unknown</div>
   <div class="legend-section">Aircraft</div>
   <div class="legend-item"><div class="legend-plane-icon" style="color:#22d3ee">&#x2708;</div>Departure</div>
   <div class="legend-item"><div class="legend-plane-icon" style="color:#10b981">&#x2708;</div>Climbing</div>
@@ -182,7 +183,7 @@
   <div class="legend-item"><div style="width:16px;height:2px;border-top:2px dashed #06b6d4;flex-shrink:0"></div>Data Collection</div>
   <div class="trail-toggle" id="trail-toggle" onclick="toggleLongTail()">
     <div class="toggle-track" id="toggle-track"><div class="toggle-thumb"></div></div>
-    <span class="toggle-label">Long Tail</span>
+    <span class="toggle-label" id="toggle-label">Short Tail (~45s)</span>
   </div>
 </div>
 
@@ -237,6 +238,15 @@ function makePlaneIcon(color) {
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
+function makeShipIcon(color) {
+  // Boat hull shape — pointed bow at top, flat stern at bottom
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24">
+    <path d="M12 3 L16 12 L15 17 L9 17 L8 12 Z"
+          fill="${color}" stroke="#0a0e17" stroke-width="1.2" stroke-linejoin="round"/>
+  </svg>`;
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+
 // --- Catmull-Rom spline for smooth trails ---
 // Given control points P0..P3, evaluate the curve between P1 and P2 at t=[0,1]
 function catmullRom(p0, p1, p2, p3, t) {
@@ -252,6 +262,7 @@ let longTailMode = false;
 function toggleLongTail() {
   longTailMode = !longTailMode;
   document.getElementById('toggle-track').classList.toggle('on', longTailMode);
+  document.getElementById('toggle-label').textContent = longTailMode ? 'Long Tail (~3 min)' : 'Short Tail (~45s)';
   // Re-render trails with current data
   if (lastVesselEntities) updateVessels(lastVesselEntities);
   if (lastAircraftEntities) updateAircraft(lastAircraftEntities);
@@ -350,6 +361,7 @@ map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
 function vesselToFeature(v) {
   const color = VESSEL_COLORS[v.vessel_type] || VESSEL_COLORS.unknown;
+  const hdg = (v.heading_deg != null && v.heading_deg !== 511) ? v.heading_deg : (v.course_deg || 0);
   return {
     feature: {
       type: 'Feature',
@@ -360,6 +372,7 @@ function vesselToFeature(v) {
         speed: v.speed_knots, heading: v.heading_deg, course: v.course_deg,
         destination: v.destination || '', timestamp: v.position.timestamp,
         color: color, track_points: v.track_points || 0,
+        rotation: hdg,
       },
     },
     track: v.track || [],
@@ -513,34 +526,42 @@ function initLayers() {
     },
   });
 
-  // --- Vessel layers ---
-  map.addLayer({
-    id: 'vessel-glow', type: 'circle', source: 'vessels',
-    paint: {
-      'circle-radius': 12, 'circle-color': ['get', 'color'],
-      'circle-opacity': 0.15, 'circle-blur': 1,
-    },
-  });
-  map.addLayer({
-    id: 'vessel-dots', type: 'circle', source: 'vessels',
-    paint: {
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 3, 12, 5, 16, 8],
-      'circle-color': ['get', 'color'],
-      'circle-opacity': 0.9,
-      'circle-stroke-width': 1,
-      'circle-stroke-color': 'rgba(255,255,255,0.3)',
-    },
-  });
-  map.addLayer({
-    id: 'vessel-labels', type: 'symbol', source: 'vessels', minzoom: 13,
-    layout: {
-      'text-field': ['get', 'name'], 'text-size': 11,
-      'text-offset': [0, 1.4], 'text-anchor': 'top',
-      'text-font': ['Open Sans Regular'],
-    },
-    paint: {
-      'text-color': '#94a3b8', 'text-halo-color': '#0a0e17', 'text-halo-width': 1,
-    },
+  // --- Vessel layers (loaded via ship icons) ---
+  const vesselTypes = Object.entries(VESSEL_COLORS);
+  let vesselIconsLoaded = 0;
+
+  function addVesselLayers() {
+    map.addLayer({
+      id: 'vessel-icons', type: 'symbol', source: 'vessels',
+      layout: {
+        'icon-image': ['concat', 'ship-', ['get', 'vessel_type']],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.45, 12, 0.7, 16, 1.1],
+        'icon-rotate': ['get', 'rotation'],
+        'icon-rotation-alignment': 'map',
+        'icon-allow-overlap': true,
+      },
+    });
+    map.addLayer({
+      id: 'vessel-labels', type: 'symbol', source: 'vessels', minzoom: 13,
+      layout: {
+        'text-field': ['get', 'name'], 'text-size': 11,
+        'text-offset': [0, 1.4], 'text-anchor': 'top',
+        'text-font': ['Open Sans Regular'],
+      },
+      paint: {
+        'text-color': '#94a3b8', 'text-halo-color': '#0a0e17', 'text-halo-width': 1,
+      },
+    });
+  }
+
+  vesselTypes.forEach(([type, color]) => {
+    const img = new Image(28, 28);
+    img.onload = () => {
+      map.addImage(`ship-${type}`, img);
+      vesselIconsLoaded++;
+      if (vesselIconsLoaded === vesselTypes.length) addVesselLayers();
+    };
+    img.src = makeShipIcon(color);
   });
 
   // --- Aircraft layers ---
@@ -596,11 +617,11 @@ function initLayers() {
   });
 
   // --- Click handlers ---
-  map.on('click', 'vessel-dots', (e) => showVesselInfo(e.features[0].properties));
+  map.on('click', 'vessel-icons', (e) => showVesselInfo(e.features[0].properties));
   map.on('click', 'aircraft-icons', (e) => showAircraftInfo(e.features[0].properties));
   map.on('click', 'aircraft-ground', (e) => showAircraftInfo(e.features[0].properties));
 
-  ['vessel-dots', 'aircraft-icons', 'aircraft-ground'].forEach(layer => {
+  ['vessel-icons', 'aircraft-icons', 'aircraft-ground'].forEach(layer => {
     map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
   });

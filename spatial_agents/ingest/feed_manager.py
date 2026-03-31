@@ -16,7 +16,7 @@ import asyncio
 import logging
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Callable
 
 from spatial_agents.config import config
@@ -216,6 +216,18 @@ class FeedManager:
                         cb(record)
 
                 logger.info("ADS-B poll: %d aircraft", len(records))
+
+                # Evict aircraft not seen in the last 10 minutes
+                cutoff = now - timedelta(minutes=10)
+                stale = [
+                    icao for icao, rec in self._aircraft_latest.items()
+                    if rec.position.timestamp < cutoff
+                ]
+                for icao in stale:
+                    del self._aircraft_latest[icao]
+                    self._aircraft_tracks.pop(icao, None)
+                if stale:
+                    logger.info("Evicted %d stale aircraft (>10 min)", len(stale))
 
             except asyncio.CancelledError:
                 break
