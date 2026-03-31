@@ -1,106 +1,143 @@
-# Spatial Agents — Python Intelligence Layer
+# Spatial Agents
 
-<!--
-  README.md — Project documentation and quickstart guide.
+Geospatial intelligence pipeline that ingests real-time maritime (AIS) and
+aviation (ADS-B) feeds, builds H3-indexed tile pyramids, constructs structural
+causal models using Pearl's SCM framework, and serves intelligence to iOS,
+macOS, and visionOS clients via a FastAPI REST API.
 
-  Covers architecture overview, deployment tiers, API surface,
-  H3 tiling scheme, Foundation Models integration, causal reasoning
-  framework, and development setup.
+**Live instance:** [agents.specktech.com](https://agents.specktech.com)
 
-  Version History:
-      0.1.0  2026-03-28  Initial README with architecture, API docs,
-                         tiling spec, FM integration, and causal overview
-      0.1.1  2026-03-28  Updated license to SpeckTech Inc.
--->
+## Features
 
-Geospatial data pipeline for the **Spatial Agents** ecosystem. Ingests real-time
-maritime (AIS) and aviation (ADS-B) feeds, builds H3-indexed tile pyramids,
-evaluates prompts against Apple's on-device Foundation Model, constructs
-structural causal models (Pearl SCM), and serves intelligence to
-iOS, macOS, and visionOS clients.
-
-## Architecture
-
-```
-spatial_agents/
-├── ingest/          # AIS NMEA, ADS-B, TLE feed parsers
-├── spatial/         # H3 hexagonal indexing + tile generation
-├── intelligence/    # FM prompt evaluation + token budget management
-├── causal/          # Pearl SCM DAG construction + do-calculus
-├── serving/         # FastAPI REST API + static tile server
-└── deploy/          # Local Mac (M1 Mini) + cloud (S3) configs
-```
-
-## Deployment Tiers
-
-| Tier | Infrastructure | Monetization |
-|------|---------------|--------------|
-| **Free** | Client-only (iPhone, Vision Pro) | App Store download |
-| **Mac Local** | M1 Mini on LAN, port 8012 | One-time purchase |
-| **Cloud** | S3 tiles + FastAPI | Subscription |
+- **Real-time data ingestion** — AIS vessel tracking via WebSocket, ADS-B
+  aircraft positions via REST polling
+- **H3 hexagonal tiling** — Multi-resolution spatial index (res 3-7) with
+  temporal binning from daily aggregates down to live streams
+- **Causal reasoning** — Event detection (loitering, dark gaps, density
+  anomalies, ground stops), DAG construction, and do-calculus counterfactual
+  interventions
+- **Foundation Model integration** — Token-budgeted prompt evaluation with
+  schema-validated structured outputs
+- **Apple platform clients** — Designed to serve iOS, macOS, and visionOS
+  apps via JSON REST API
 
 ## Quick Start
 
 ```bash
 # Clone and install
+git clone https://github.com/glenspecktech/spatial-agents.git
 cd spatial-agents
+python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Run locally (M1 Mini mode)
-spatial-agents --port 8012
+# Run tests
+pytest tests/ -v
 
-# Or directly
-python -m spatial_agents.main
+# Start the server
+spatial-agents --port 8012
+```
+
+The server starts on `http://127.0.0.1:8012`. Interactive API docs are
+available at `/docs` (Swagger UI) and `/redoc`.
+
+## Configuration
+
+| Environment Variable | Default | Description |
+|---|---|---|
+| `SPATIAL_AGENTS_MODE` | `local_mac` | Deployment mode: `local_mac` or `cloud` |
+| `SPATIAL_AGENTS_PORT` | `8012` | Server port |
+| `SPATIAL_AGENTS_AIS_KEY` | — | aisstream.io API key (enables live AIS) |
+| `SPATIAL_AGENTS_DATA_DIR` | `./data` (local) or `/data` (cloud) | Root data directory |
+| `SPATIAL_AGENTS_TILE_DIR` | `{data_dir}/tiles/h3` | Tile output directory |
+| `SPATIAL_AGENTS_S3_BUCKET` | — | S3 bucket for cloud tile delivery |
+| `SPATIAL_AGENTS_S3_REGION` | `us-west-2` | AWS region for S3 |
+
+CLI arguments:
+
+```
+spatial-agents --mode local_mac --port 8012 --verbose
 ```
 
 ## API Endpoints
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/tiles/h3/{res}/{cell}/{bin}.json` | Static H3 tile |
-| GET | `/api/vessels/{h3_cell}` | Live vessel positions |
-| GET | `/api/aircraft/{h3_cell}` | Live aircraft positions |
-| GET | `/api/intelligence/{h3_cell}` | FM situation report |
-| GET | `/api/causal/{h3_cell}` | Causal graph |
-| GET | `/api/budget` | Token budget status |
-| GET | `/health` | Pipeline health |
+|---|---|---|
+| `GET` | `/health` | Pipeline health, feed status, uptime |
+| `GET` | `/api/vessels/{h3_cell}` | Live vessel positions in an H3 cell |
+| `GET` | `/api/aircraft/{h3_cell}` | Live aircraft positions in an H3 cell |
+| `GET` | `/api/intelligence/{h3_cell}` | FM situation report for a cell |
+| `GET` | `/api/causal/{h3_cell}` | Causal event graph with interventions |
+| `GET` | `/api/budget` | Token budget allocation |
+| `GET` | `/api/tiles/info/{h3_cell}` | H3 cell metadata and geometry |
+| `GET` | `/api/tiles/bbox` | Cells within a bounding box |
+| `GET` | `/api/tiles/position` | Cell IDs for a lat/lng coordinate |
+| `GET` | `/api/tiles/stats` | Tile storage statistics |
+| `GET` | `/tiles/{path}` | Static pre-computed tile files |
 
-## H3 Tiling
+Full API documentation with request/response schemas:
+[agents.specktech.com/docs](https://agents.specktech.com/docs)
 
-Multi-resolution hexagonal tiles (Uber H3, Apache 2.0):
+OpenAPI spec: [agents.specktech.com/openapi.json](https://agents.specktech.com/openapi.json)
+
+## Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system design, data flow,
+and component reference.
+
+```
+spatial_agents/
+├── ingest/          # AIS WebSocket + ADS-B REST feed parsers
+├── spatial/         # H3 hexagonal indexing + tile generation
+├── intelligence/    # FM prompt evaluation + token budget management
+├── causal/          # Pearl SCM DAG construction + do-calculus
+├── serving/         # FastAPI REST API + static tile server
+├── deploy/          # Local Mac + cloud (S3) deployment configs
+└── data/            # Sample data for offline development
+```
+
+## H3 Tiling Scheme
+
+Multi-resolution hexagonal tiles using [Uber H3](https://h3geo.org/):
 
 | Resolution | Edge Length | Use Case | Temporal Bin |
-|-----------|-------------|----------|--------------|
-| 3 | 12.4 km | Global density heatmap | 1 day |
-| 4 | 4.7 km | Shipping lanes / corridors | 1 hour |
-| 5 | 1.8 km | Port approach | 5 min |
-| 6 | 0.68 km | Harbor detail | 1 min |
-| 7 | 0.26 km | Berth level | Live |
+|---|---|---|---|
+| 3 | ~59.8 km | Regional density heatmap | 1 day |
+| 4 | ~22.6 km | Shipping lanes / corridors | 1 hour |
+| 5 | ~8.5 km | Port / airport approach | 5 min |
+| 6 | ~3.2 km | Harbor / terminal detail | 1 min |
+| 7 | ~1.2 km | Berth / gate level | Live |
 
-## Foundation Models Integration
+## Deployment Tiers
 
-Uses Apple's FM Python SDK (macOS) for prompt evaluation:
+| Tier | Infrastructure | Notes |
+|---|---|---|
+| **Free** | Client-only (iPhone, Vision Pro) | Offline sample data |
+| **Mac Local** | M1 Mini on LAN, Apache reverse proxy | `local_mac` mode |
+| **Cloud** | S3 tiles + FastAPI container | `cloud` mode with CDN |
 
-- `contextSize` — query available context window (4096 tokens)
-- `tokenCount(for:)` — measure token consumption per component
-- Schema validation against Swift `@Generable` struct definitions
-- Regression testing across model versions (e.g., 26.4 update)
-
-## Causal Reasoning
-
-Pearl's structural causal model framework:
-
-1. **Event Detection** — loitering, dark gaps, diversions, density anomalies
-2. **DAG Construction** — domain knowledge rules + temporal ordering
-3. **do-calculus** — counterfactual intervention queries
-4. **FM Narration** — on-device natural language explanation
-
-## Tests
+## Development
 
 ```bash
+# Install with dev dependencies
+pip install -e ".[dev]"
+
+# Run tests
 pytest tests/ -v
+
+# Lint and format
+ruff check spatial_agents/ tests/
+ruff format spatial_agents/ tests/
+
+# Type check
+mypy spatial_agents/
+
+# Run the demo pipeline (no server)
+python scripts/demo.py
+
+# Run demo with server
+python scripts/demo.py --serve
 ```
 
 ## License
 
-Proprietary — SpeckTech Inc.
+[MIT](LICENSE) — SpeckTech Inc.

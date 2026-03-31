@@ -18,7 +18,7 @@ name = "spatial-agents"
 version = "0.1.0"
 description = "Geospatial intelligence pipeline for Spatial Agents — AIS, ADS-B, H3 tiling, FM evaluation, causal reasoning"
 requires-python = ">=3.11"
-license = { text = "Proprietary — SpeckTech Inc." }
+license = { text = "MIT" }
 authors = [
     { name = "Glen", email = "speckert@specktech.com" }
 ]

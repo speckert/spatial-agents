@@ -39,7 +39,7 @@ class FeedConfig(BaseModel):
         description="ADS-B REST API endpoint (OpenSky Network)",
     )
     adsb_poll_interval_sec: int = Field(
-        default=10,
+        default=30,
         description="Seconds between ADS-B position polls",
     )
 
@@ -131,8 +131,12 @@ class SpatialAgentsConfig(BaseModel):
         mode = DeploymentMode(os.getenv("SPATIAL_AGENTS_MODE", "local_mac"))
 
         # Adjust defaults based on deployment mode
-        tile_dir = Path(os.getenv("SPATIAL_AGENTS_TILE_DIR", "/data/tiles/h3"))
-        data_dir = Path(os.getenv("SPATIAL_AGENTS_DATA_DIR", "/data"))
+        if mode == DeploymentMode.LOCAL_MAC:
+            default_data = Path(__file__).resolve().parent.parent / "data"
+        else:
+            default_data = Path("/data")
+        data_dir = Path(os.getenv("SPATIAL_AGENTS_DATA_DIR", str(default_data)))
+        tile_dir = Path(os.getenv("SPATIAL_AGENTS_TILE_DIR", str(data_dir / "tiles" / "h3")))
 
         return cls(
             mode=mode,
