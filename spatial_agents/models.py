@@ -8,6 +8,8 @@ structured output validation works across both Python and Swift.
 
 Version History:
     0.1.0  2026-03-28  Initial model definitions
+    0.2.0  2026-04-02  Added flight_phase field to AircraftRecord and
+                       classify_flight_phase() function
 """
 
 from __future__ import annotations
@@ -103,6 +105,37 @@ class VesselTrack(BaseModel):
 # Aircraft (ADS-B)
 # ---------------------------------------------------------------------------
 
+_METERS_TO_FEET = 3.28084
+
+
+def classify_flight_phase(
+    on_ground: bool | None = None,
+    vertical_rate_fpm: float | None = None,
+    altitude_meters: float | None = None,
+) -> str:
+    """
+    Classify an aircraft's flight phase from raw telemetry.
+
+    Returns one of: ground, departure, approach, descending, cruising, climbing.
+    """
+    if on_ground is True:
+        return "ground"
+
+    alt_feet = (altitude_meters or 0) * _METERS_TO_FEET
+    vr = vertical_rate_fpm or 0
+
+    if alt_feet < 200:
+        return "departure" if vr > 0 else "approach"
+
+    if vr < -300:
+        return "descending"
+
+    if alt_feet >= 18_000:
+        return "cruising"
+
+    return "climbing"
+
+
 class AircraftRecord(BaseModel):
     """Parsed ADS-B aircraft record — single state vector."""
     icao24: str = Field(description="ICAO 24-bit transponder address (hex)")
@@ -114,6 +147,10 @@ class AircraftRecord(BaseModel):
     heading_deg: float | None = Field(default=None, ge=0, lt=360)
     on_ground: bool = Field(default=False)
     squawk: str = Field(default="", description="Transponder squawk code")
+    flight_phase: str = Field(
+        default="climbing",
+        description="Classified flight phase: ground, departure, approach, descending, cruising, climbing",
+    )
     h3_cells: dict[int, str] = Field(
         default_factory=dict,
         description="H3 cell IDs at each resolution {res: cell_id}",
@@ -257,3 +294,124 @@ class PipelineHealth(BaseModel):
     tile_count: int = Field(default=0, description="Total tiles on disk")
     oldest_tile_age_seconds: float | None = None
     newest_tile_age_seconds: float | None = None
+
+
+# ---------------------------------------------------------------------------
+# API Response Models — typed responses for OpenAPI spec generation
+# ---------------------------------------------------------------------------
+
+class VesselWithTrack(VesselRecord):
+    """Vessel record enriched with position history trail."""
+    track: list[list[float]] = Field(
+        default_factory=list,
+        description="Position history as [[lng, lat], ...], newest last (up to 5 points)",
+    )
+    track_points: int = Field(default=0, description="Number of trail positions available")
+
+
+class AircraftWithTrack(AircraftRecord):
+    """Aircraft record enriched with position history trail."""
+    track: list[list[float]] = Field(
+        default_factory=list,
+        description="Position history as [[lng, lat], ...], newest last (up to 5 points)",
+    )
+    track_points: int = Field(default=0, description="Number of trail positions available")
+
+
+class VesselResponse(BaseModel):
+    """Response for GET /api/vessels/{h3_cell}."""
+    h3_cell: str = Field(description="Queried H3 cell index")
+    resolution: int = Field(description="H3 resolution level used for the query")
+    count: int = Field(description="Number of vessels in this cell")
+    vessels: list[VesselWithTrack] = Field(description="Vessel records with position trails")
+    timestamp: datetime = Field(description="Response generation time (UTC)")
+
+
+class AircraftResponse(BaseModel):
+    """Response for GET /api/aircraft/{h3_cell}."""
+    h3_cell: str = Field(description="Queried H3 cell index")
+    resolution: int = Field(description="H3 resolution level used for the query")
+    count: int = Field(description="Number of aircraft in this cell")
+    aircraft: list[AircraftWithTrack] = Field(description="Aircraft records with position trails")
+    timestamp: datetime = Field(description="Response generation time (UTC)")
+
+
+class IntelligenceResponse(BaseModel):
+    """Response for GET /api/intelligence/{h3_cell}."""
+    h3_cell: str = Field(description="Queried H3 cell index")
+    resolution: int = Field(description="H3 resolution level")
+    domain: str = Field(description="Intelligence domain: maritime, aviation, orbital")
+    activity_summary: str = Field(description="Natural language summary of current activity")
+    vessel_count: int = Field(description="Number of vessels in cell")
+    aircraft_count: int = Field(description="Number of aircraft in cell")
+    token_budget: TokenBudget = Field(description="Current FM token budget allocation")
+    payload_tokens: int = Field(description="Tokens consumed by this payload")
+    note: str = Field(description="Status note about FM evaluation")
+    timestamp: datetime = Field(description="Response generation time (UTC)")
+
+
+class CausalEmptyResponse(BaseModel):
+    """Response for GET /api/causal/{h3_cell} when no events are detected."""
+    h3_cell: str = Field(description="Queried H3 cell index")
+    message: str = Field(description="Status message")
+    events_checked: int = Field(description="Number of entities evaluated for events")
+    timestamp: datetime = Field(description="Response generation time (UTC)")
+
+
+class HealthConfigResponse(BaseModel):
+    """Nested config section of the health response."""
+    resolutions: list[int] = Field(description="Active H3 resolution levels")
+    context_window: int = Field(description="FM context window size in tokens")
+
+
+class HealthResponse(BaseModel):
+    """Response for GET /health."""
+    status: str = Field(description="Overall status: ok, degraded, error, initializing")
+    mode: str = Field(description="Deployment mode: local_mac or cloud")
+    uptime_seconds: float = Field(description="Server uptime in seconds")
+    port: int = Field(description="Server port")
+    feeds: list[FeedStatus] = Field(description="Per-feed health status")
+    config: HealthConfigResponse = Field(description="Active configuration summary")
+
+
+class FeedHealthResponse(BaseModel):
+    """Response for GET /health/feeds."""
+    feeds: list[FeedStatus] = Field(description="Detailed per-feed health status")
+
+
+class CellCenter(BaseModel):
+    """Geographic center of an H3 cell."""
+    lat: float = Field(description="Latitude")
+    lng: float = Field(description="Longitude")
+
+
+class TileInfoResponse(BaseModel):
+    """Response for GET /api/tiles/info/{h3_cell}."""
+    cell_id: str = Field(description="H3 cell index")
+    resolution: int = Field(description="H3 resolution level")
+    center: CellCenter = Field(description="Cell center coordinates")
+    boundary: dict[str, Any] = Field(description="GeoJSON polygon of cell boundary")
+    edge_length_km: float = Field(description="Approximate edge length in kilometers")
+    neighbors: list[str] = Field(description="Adjacent H3 cell IDs")
+
+
+class BboxResponse(BaseModel):
+    """Response for GET /api/tiles/bbox."""
+    bbox: list[float] = Field(description="Bounding box [min_lat, min_lng, max_lat, max_lng]")
+    resolution: int = Field(description="H3 resolution level")
+    cell_count: int = Field(description="Number of cells covering the bbox")
+    cells: list[str] = Field(description="Sorted list of H3 cell IDs")
+
+
+class PositionCellsResponse(BaseModel):
+    """Response for GET /api/tiles/position."""
+    lat: float = Field(description="Queried latitude")
+    lng: float = Field(description="Queried longitude")
+    cells: dict[int, str] = Field(description="H3 cell IDs at each resolution {res: cell_id}")
+
+
+class TileStatsResponse(BaseModel):
+    """Response for GET /api/tiles/stats."""
+    total: int = Field(description="Total number of tile files on disk")
+    total_size_mb: float = Field(default=0, description="Total size of all tiles in MB")
+    avg_size_kb: float = Field(default=0, description="Average tile file size in KB")

@@ -8,6 +8,11 @@ Version History:
     0.1.0  2026-03-28  Initial feed manager with AIS WebSocket + ADS-B polling
     0.2.0  2026-03-31  Added per-entity position history (5-point tracks) for
                        vessel and aircraft trail rendering
+    0.3.0  2026-04-02  Stale vessel eviction (8 hr) with near-edge logging,
+                       aircraft eviction cutoff 10 min
+    0.4.0  2026-04-02  Flight phase state machine — enforces valid transitions
+                       (ground→departure→climbing→cruising→descending→approach→ground),
+                       handles go-arounds and missed approaches
 """
 
 from __future__ import annotations
@@ -68,6 +73,9 @@ class FeedManager:
         self._vessel_tracks: dict[str, deque[tuple[float, float]]] = {}
         self._aircraft_tracks: dict[str, deque[tuple[float, float]]] = {}
 
+        # Flight phase state machine — tracks prior phase per aircraft
+        self._aircraft_phase: dict[str, str] = {}
+
         # Health tracking
         self._start_time: float = 0.0
         self._ais_last_msg: datetime | None = None
@@ -109,6 +117,79 @@ class FeedManager:
         """Return position history for an aircraft as [(lng, lat), ...]."""
         return list(self._aircraft_tracks.get(icao24, []))
 
+    # Valid phase transitions — maps (prior_phase) → set of allowed next phases.
+    # If the snapshot classification isn't in the allowed set, we pick the
+    # closest valid transition based on telemetry direction.
+    _VALID_TRANSITIONS: dict[str, set[str]] = {
+        "ground":     {"ground", "departure", "climbing"},
+        "departure":  {"departure", "climbing"},
+        "climbing":   {"climbing", "cruising", "descending"},
+        "cruising":   {"cruising", "descending"},
+        "descending": {"descending", "approach", "climbing"},  # climbing = go-around
+        "approach":   {"approach", "ground", "climbing"},       # climbing = missed approach
+    }
+
+    def _resolve_phase(self, icao24: str, snapshot_phase: str) -> str:
+        """
+        Resolve flight phase using the state machine.
+
+        If the aircraft has a prior phase, enforce valid transitions.
+        If it's new (first seen), accept the snapshot classification directly.
+        """
+        prior = self._aircraft_phase.get(icao24)
+
+        if prior is None:
+            # First seen — accept snapshot as-is
+            self._aircraft_phase[icao24] = snapshot_phase
+            return snapshot_phase
+
+        allowed = self._VALID_TRANSITIONS.get(prior, set())
+
+        if snapshot_phase in allowed:
+            # Valid transition
+            self._aircraft_phase[icao24] = snapshot_phase
+            return snapshot_phase
+
+        # Invalid transition — find the best intermediate state.
+        # The snapshot tells us where telemetry *wants* to go;
+        # we step through the closest valid state instead.
+        bridge = self._bridge_phase(prior, snapshot_phase)
+        self._aircraft_phase[icao24] = bridge
+        return bridge
+
+    @staticmethod
+    def _bridge_phase(prior: str, target: str) -> str:
+        """
+        When a direct transition isn't valid, return the best
+        intermediate phase that moves toward the target.
+        """
+        # Ground trying to jump to climbing/cruising — go through departure
+        if prior == "ground" and target in ("cruising", "descending", "approach"):
+            return "climbing"
+
+        # Departure trying to jump to cruising — still climbing
+        if prior == "departure" and target in ("cruising", "descending", "approach", "ground"):
+            return "climbing"
+
+        # Climbing trying to jump to approach/ground — must descend first
+        if prior == "climbing" and target in ("approach", "ground"):
+            return "descending"
+
+        # Cruising trying to jump to approach/ground — must descend first
+        if prior == "cruising" and target in ("approach", "ground", "climbing", "departure"):
+            return "descending"
+
+        # Descending trying to jump to ground — go through approach
+        if prior == "descending" and target == "ground":
+            return "approach"
+
+        # Approach trying to jump to cruising — go-around, climb first
+        if prior == "approach" and target in ("cruising", "descending", "departure"):
+            return "climbing"
+
+        # Fallback — hold current phase
+        return prior
+
     def on_vessel(self, callback: Callable[[VesselRecord], None]) -> None:
         """Register a callback for new vessel records."""
         self._vessel_callbacks.append(callback)
@@ -124,6 +205,7 @@ class FeedManager:
 
         self._tasks = [
             asyncio.create_task(self._adsb_poll_loop(), name="adsb_poll"),
+            asyncio.create_task(self._vessel_cleanup_loop(), name="vessel_cleanup"),
         ]
         # Start AIS WebSocket if API key is configured
         if config.feeds.ais_api_key:
@@ -206,6 +288,10 @@ class FeedManager:
 
                 for record in records:
                     self._adsb_msg_count += 1
+                    # Apply flight phase state machine
+                    record.flight_phase = self._resolve_phase(
+                        record.icao24, record.flight_phase,
+                    )
                     self._aircraft_buffer.append(record)
                     self._aircraft_latest[record.icao24] = record
                     self._update_track(
@@ -226,6 +312,7 @@ class FeedManager:
                 for icao in stale:
                     del self._aircraft_latest[icao]
                     self._aircraft_tracks.pop(icao, None)
+                    self._aircraft_phase.pop(icao, None)
                 if stale:
                     logger.info("Evicted %d stale aircraft (>10 min)", len(stale))
 
@@ -236,6 +323,52 @@ class FeedManager:
                 logger.error("ADS-B poll error: %s", exc)
 
             await asyncio.sleep(interval)
+
+    # --- Vessel Cleanup Loop ---
+
+    # Bounding box for "near edge" detection (matching AIS/ADS-B bbox)
+    _BBOX_LAT_MIN, _BBOX_LAT_MAX = 37.25, 38.2
+    _BBOX_LNG_MIN, _BBOX_LNG_MAX = -122.78, -121.8
+    _EDGE_MARGIN = 0.05  # ~5.5 km — "near edge" threshold
+
+    def _is_near_edge(self, lat: float, lng: float) -> bool:
+        """Check if a position is within the edge margin of the bounding box."""
+        return (
+            lat < self._BBOX_LAT_MIN + self._EDGE_MARGIN
+            or lat > self._BBOX_LAT_MAX - self._EDGE_MARGIN
+            or lng < self._BBOX_LNG_MIN + self._EDGE_MARGIN
+            or lng > self._BBOX_LNG_MAX - self._EDGE_MARGIN
+        )
+
+    async def _vessel_cleanup_loop(self) -> None:
+        """Periodically evict vessels not seen in over 8 hours."""
+        while self._running:
+            try:
+                await asyncio.sleep(300)  # Run every 5 minutes
+                now = datetime.now(timezone.utc)
+                cutoff = now - timedelta(hours=8)
+                stale = []
+                near_edge_count = 0
+                for mmsi, rec in self._vessel_latest.items():
+                    if rec.position.timestamp < cutoff:
+                        near_edge = self._is_near_edge(
+                            rec.position.lat, rec.position.lng,
+                        )
+                        stale.append(mmsi)
+                        if near_edge:
+                            near_edge_count += 1
+                for mmsi in stale:
+                    del self._vessel_latest[mmsi]
+                    self._vessel_tracks.pop(mmsi, None)
+                if stale:
+                    logger.info(
+                        "Evicted %d stale vessels (>8 hr), %d near edge",
+                        len(stale), near_edge_count,
+                    )
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.error("Vessel cleanup error: %s", exc)
 
     # --- AIS WebSocket Loop ---
 

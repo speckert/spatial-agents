@@ -11,6 +11,7 @@ Version History:
     0.2.0  2026-03-30  Added OpenSky Basic auth support and 429 backoff
     0.3.0  2026-03-31  Switched to OAuth2 client credentials, exponential
                        backoff, tighter Bay Area bbox
+    0.4.0  2026-04-02  Added flight_phase classification at ingest time
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import h3
 import httpx
 
 from spatial_agents.config import config
-from spatial_agents.models import AircraftCategory, AircraftRecord, GeoPosition
+from spatial_agents.models import AircraftCategory, AircraftRecord, GeoPosition, classify_flight_phase
 
 logger = logging.getLogger(__name__)
 
@@ -299,6 +300,8 @@ class ADSBParser:
             category_int = sv[17] if len(sv) > 17 else 0
             category = _CATEGORY_MAP.get(category_int or 0, AircraftCategory.UNKNOWN)
 
+            on_ground = bool(sv[8])
+
             return AircraftRecord(
                 icao24=icao24,
                 callsign=callsign,
@@ -307,8 +310,9 @@ class ADSBParser:
                 velocity_knots=velocity_knots,
                 vertical_rate_fpm=vr_fpm,
                 heading_deg=sv[10] if sv[10] is not None and 0 <= sv[10] < 360 else None,
-                on_ground=bool(sv[8]),
+                on_ground=on_ground,
                 squawk=sv[14] or "",
+                flight_phase=classify_flight_phase(on_ground, vr_fpm, alt_m),
                 h3_cells=_assign_h3_cells(lat, lng),
             )
         except (IndexError, TypeError, ValueError) as exc:

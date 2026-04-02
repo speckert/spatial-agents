@@ -5,6 +5,8 @@ Version History:
     0.1.0  2026-03-28  Initial API routes
     0.2.0  2026-03-31  Added track history and track_points to vessel and
                        aircraft endpoint responses
+    0.3.0  2026-04-02  Typed Pydantic response models for OpenAPI spec
+                       generation with full field documentation
 """
 
 from __future__ import annotations
@@ -20,7 +22,16 @@ from spatial_agents.causal.event_detector import EventDetector
 from spatial_agents.causal.graph_serializer import GraphSerializer
 from spatial_agents.causal.intervention import InterventionEngine
 from spatial_agents.intelligence.token_budget import TokenBudgetManager
-from spatial_agents.models import DataDomain
+from spatial_agents.models import (
+    AircraftResponse,
+    AircraftWithTrack,
+    CausalEmptyResponse,
+    DataDomain,
+    IntelligenceResponse,
+    TokenBudget,
+    VesselResponse,
+    VesselWithTrack,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,16 +54,16 @@ def set_feed_manager(manager: Any) -> None:
     _feed_manager = manager
 
 
-@router.get("/vessels/{h3_cell}")
+@router.get("/vessels/{h3_cell}", response_model=VesselResponse)
 async def get_vessels(
     h3_cell: str,
     resolution: int = Query(default=5, ge=0, le=15),
-) -> dict[str, Any]:
+) -> VesselResponse:
     """
     Return live vessel positions within an H3 cell.
 
-    Response is a JSON array of vessel records with position,
-    heading, speed, and vessel type.
+    Each vessel includes current position, heading, speed, vessel type,
+    and a position history trail (up to 5 points) for rendering movement.
     """
     if _feed_manager is None:
         raise HTTPException(503, "Feed manager not initialized")
@@ -60,27 +71,31 @@ async def get_vessels(
     vessels = _feed_manager.get_vessels_in_cell(h3_cell, resolution)
     vessel_list = []
     for v in vessels:
-        vd = v.model_dump(mode="json")
         track = _feed_manager.get_vessel_track(v.mmsi)
-        vd["track"] = track
-        vd["track_points"] = len(track)
-        vessel_list.append(vd)
-    return {
-        "h3_cell": h3_cell,
-        "resolution": resolution,
-        "count": len(vessels),
-        "vessels": vessel_list,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+        vessel_list.append(VesselWithTrack(
+            **v.model_dump(),
+            track=track,
+            track_points=len(track),
+        ))
+    return VesselResponse(
+        h3_cell=h3_cell,
+        resolution=resolution,
+        count=len(vessels),
+        vessels=vessel_list,
+        timestamp=datetime.now(timezone.utc),
+    )
 
 
-@router.get("/aircraft/{h3_cell}")
+@router.get("/aircraft/{h3_cell}", response_model=AircraftResponse)
 async def get_aircraft(
     h3_cell: str,
     resolution: int = Query(default=5, ge=0, le=15),
-) -> dict[str, Any]:
+) -> AircraftResponse:
     """
     Return live aircraft positions within an H3 cell.
+
+    Each aircraft includes position, velocity, altitude, flight_phase
+    (server-classified via state machine), and a position history trail.
     """
     if _feed_manager is None:
         raise HTTPException(503, "Feed manager not initialized")
@@ -88,26 +103,27 @@ async def get_aircraft(
     aircraft = _feed_manager.get_aircraft_in_cell(h3_cell, resolution)
     aircraft_list = []
     for a in aircraft:
-        ad = a.model_dump(mode="json")
         track = _feed_manager.get_aircraft_track(a.icao24)
-        ad["track"] = track
-        ad["track_points"] = len(track)
-        aircraft_list.append(ad)
-    return {
-        "h3_cell": h3_cell,
-        "resolution": resolution,
-        "count": len(aircraft),
-        "aircraft": aircraft_list,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+        aircraft_list.append(AircraftWithTrack(
+            **a.model_dump(),
+            track=track,
+            track_points=len(track),
+        ))
+    return AircraftResponse(
+        h3_cell=h3_cell,
+        resolution=resolution,
+        count=len(aircraft),
+        aircraft=aircraft_list,
+        timestamp=datetime.now(timezone.utc),
+    )
 
 
-@router.get("/intelligence/{h3_cell}")
+@router.get("/intelligence/{h3_cell}", response_model=IntelligenceResponse)
 async def get_intelligence(
     h3_cell: str,
     resolution: int = Query(default=5, ge=0, le=15),
     domain: str = Query(default="maritime"),
-) -> dict[str, Any]:
+) -> IntelligenceResponse:
     """
     Return FM-evaluated situation report for an H3 cell.
 
@@ -147,31 +163,46 @@ async def get_intelligence(
     payload_tokens = await _budget_manager.measure_payload(payload_text)
     budget = _budget_manager.get_budget()
 
-    return {
-        "h3_cell": h3_cell,
-        "resolution": resolution,
-        "domain": domain,
-        "activity_summary": activity_summary,
-        "vessel_count": len(vessels),
-        "aircraft_count": len(aircraft),
-        "token_budget": budget.model_dump(),
-        "payload_tokens": payload_tokens,
-        "note": "FM evaluation pending — shows prompt payload and budget",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+    return IntelligenceResponse(
+        h3_cell=h3_cell,
+        resolution=resolution,
+        domain=domain,
+        activity_summary=activity_summary,
+        vessel_count=len(vessels),
+        aircraft_count=len(aircraft),
+        token_budget=budget,
+        payload_tokens=payload_tokens,
+        note="FM evaluation pending — shows prompt payload and budget",
+        timestamp=datetime.now(timezone.utc),
+    )
 
 
-@router.get("/causal/{h3_cell}")
+@router.get(
+    "/causal/{h3_cell}",
+    response_model=None,
+    responses={
+        200: {
+            "description": "Causal graph with events, or empty result if no events detected",
+            "content": {"application/json": {"schema": {
+                "oneOf": [
+                    {"$ref": "#/components/schemas/CausalGraph"},
+                    {"$ref": "#/components/schemas/CausalEmptyResponse"},
+                ]
+            }}},
+        }
+    },
+)
 async def get_causal_graph(
     h3_cell: str,
     resolution: int = Query(default=5, ge=0, le=15),
     compact: bool = Query(default=False, description="Return compact FM-optimized format"),
-) -> dict[str, Any]:
+) -> CausalEmptyResponse | dict[str, Any]:
     """
     Return causal graph for observed events in an H3 cell.
 
     Detects events from current data, builds a DAG using domain
     knowledge rules, and optionally runs counterfactual interventions.
+    Returns CausalEmptyResponse when no significant events are found.
     """
     if _feed_manager is None:
         raise HTTPException(503, "Feed manager not initialized")
@@ -183,12 +214,12 @@ async def get_causal_graph(
     events = _event_detector.detect_all(vessels, aircraft, h3_cell)
 
     if not events:
-        return {
-            "h3_cell": h3_cell,
-            "message": "No significant events detected",
-            "events_checked": len(vessels) + len(aircraft),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        return CausalEmptyResponse(
+            h3_cell=h3_cell,
+            message="No significant events detected",
+            events_checked=len(vessels) + len(aircraft),
+            timestamp=datetime.now(timezone.utc),
+        )
 
     # Build causal graph
     graph = _dag_builder.build(events, h3_cell)
@@ -211,7 +242,6 @@ async def get_causal_graph(
 
 
 @router.get("/budget")
-async def get_token_budget() -> dict[str, Any]:
+async def get_token_budget() -> TokenBudget:
     """Return current token budget allocation."""
-    budget = _budget_manager.get_budget()
-    return budget.model_dump()
+    return _budget_manager.get_budget()

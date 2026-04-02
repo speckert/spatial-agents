@@ -213,20 +213,11 @@ const AIRCRAFT_COLORS = {
   ground:     '#78716c',
 };
 
-function classifyFlightPhase(a) {
+// Flight phase comes from the server (flight_phase field).
+// Fallback for compatibility if field is missing.
+function getFlightPhase(a) {
+  if (a.flight_phase) return a.flight_phase;
   if (a.on_ground) return 'ground';
-  const vr = a.vertical_rate_fpm;
-  const alt_ft = a.position.alt_m != null ? a.position.alt_m * 3.28084 : null;
-
-  // Under 200 ft AGL — approach or departure
-  if (alt_ft != null && alt_ft < 200) {
-    return (vr != null && vr > 100) ? 'departure' : 'approach';
-  }
-  // Descending at any altitude above 200 ft
-  if (vr != null && vr < -300) return 'descending';
-  // Above FL180 and level or climbing — cruising
-  if (alt_ft != null && alt_ft >= 18000) return 'cruising';
-  // Below FL180 — climbing (ascending, level, or unknown)
   return 'climbing';
 }
 
@@ -382,7 +373,7 @@ function vesselToFeature(v) {
 
 function aircraftToFeature(a) {
   const hdg = a.heading_deg != null ? a.heading_deg : 0;
-  const phase = classifyFlightPhase(a);
+  const phase = getFlightPhase(a);
   const color = AIRCRAFT_COLORS[phase];
   return {
     feature: {
@@ -464,7 +455,7 @@ function showAircraftInfo(p) {
   kind.className = 'info-kind aircraft';
   const alt = p.altitude != null ? Number(p.altitude).toLocaleString() + ' ft' : '—';
   const vr = p.vertical_rate != null ? (Number(p.vertical_rate) >= 0 ? '+' : '') + Number(p.vertical_rate).toFixed(0) + ' fpm' : '—';
-  const phase = p.phase || (p.on_ground === true || p.on_ground === 'true' ? 'ground' : 'cruising');
+  const phase = p.phase || 'climbing';
   const rows = [
     ['ICAO24', p.icao24], ['Callsign', p.callsign || '—'],
     ['Phase', phase.charAt(0).toUpperCase() + phase.slice(1)],

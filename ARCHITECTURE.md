@@ -60,7 +60,9 @@ FastAPI REST API.
    Each record is assigned H3 cell IDs at all configured resolutions (3-7)
    at ingest time.
 2. **Buffer** — FeedManager maintains bounded deques (50K records max) and
-   a latest-record index keyed by vessel MMSI or aircraft ICAO24.
+   a latest-record index keyed by vessel MMSI or aircraft ICAO24. Stale
+   aircraft are evicted after 10 minutes; stale vessels after 8 hours.
+   A 5-point position history is maintained per entity for trail rendering.
 3. **Tile Generation** — Every 60 seconds, the tile builder reads the latest
    records and writes JSON tile files organized by resolution, cell ID, and
    temporal bin.
@@ -233,8 +235,14 @@ All data structures are Pydantic v2 models defined in `spatial_agents/models.py`
 **Core entities:**
 - `VesselRecord` — MMSI, name, type, position, heading, speed, course,
   destination, H3 cells
+  - `track`: array of [lng, lat] position history (up to 5 points)
+  - `track_points`: number of track positions available
 - `AircraftRecord` — ICAO24, callsign, category, position, velocity,
-  vertical rate, heading, on_ground, squawk, H3 cells
+  vertical rate, heading, on_ground, squawk, flight_phase, H3 cells
+  - `flight_phase`: server-classified phase — `ground`, `departure`,
+    `approach`, `climbing`, `descending`, `cruising`
+  - `track`: array of [lng, lat] position history (up to 5 points)
+  - `track_points`: number of track positions available
 
 **Spatial:**
 - `TileMetadata` — Cell ID, resolution, temporal bin, timestamps, counts, bbox
