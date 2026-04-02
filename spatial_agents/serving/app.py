@@ -40,6 +40,10 @@ def create_app() -> FastAPI:
             "to iOS, macOS, and visionOS clients."
         ),
         version="0.1.0",
+        servers=[
+            {"url": "https://agents.specktech.com", "description": "Production"},
+            {"url": "http://127.0.0.1:8012", "description": "Local development"},
+        ],
     )
 
     # CORS — allow client apps to connect

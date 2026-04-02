@@ -364,6 +364,28 @@ class HealthConfigResponse(BaseModel):
     context_window: int = Field(description="FM context window size in tokens")
 
 
+class CoverageBbox(BaseModel):
+    """Rectangular bounding box defining the data collection region."""
+    min_lat: float = Field(description="Southern boundary latitude")
+    max_lat: float = Field(description="Northern boundary latitude")
+    min_lng: float = Field(description="Western boundary longitude")
+    max_lng: float = Field(description="Eastern boundary longitude")
+
+
+class CoverageResponse(BaseModel):
+    """Data collection coverage area — actual bounds and H3 cell index."""
+    bbox: CoverageBbox = Field(
+        description="Rectangular region where AIS and ADS-B data is actively collected. "
+                    "Use for map fitting and coverage display.",
+    )
+    h3_cells: dict[int, list[str]] = Field(
+        description="Minimal set of H3 cells to query for data within the bbox. "
+                    "At coarse resolutions cells extend beyond the bbox — "
+                    "use bbox for display bounds, cells for API queries. "
+                    "Format: {resolution: [cell_ids]}",
+    )
+
+
 class HealthResponse(BaseModel):
     """Response for GET /health."""
     status: str = Field(description="Overall status: ok, degraded, error, initializing")
@@ -372,6 +394,7 @@ class HealthResponse(BaseModel):
     port: int = Field(description="Server port")
     feeds: list[FeedStatus] = Field(description="Per-feed health status")
     config: HealthConfigResponse = Field(description="Active configuration summary")
+    coverage: CoverageResponse = Field(description="Active data collection area")
 
 
 class FeedHealthResponse(BaseModel):

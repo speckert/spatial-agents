@@ -13,8 +13,12 @@ from typing import Any
 
 from fastapi import APIRouter
 
+import h3
+
 from spatial_agents.config import config
 from spatial_agents.models import (
+    CoverageBbox,
+    CoverageResponse,
     FeedHealthResponse,
     FeedStatus,
     HealthConfigResponse,
@@ -24,6 +28,34 @@ from spatial_agents.models import (
 router = APIRouter()
 
 _start_time = time.monotonic()
+
+# Collection bounding box (must match aisstream_client and adsb_parser)
+_BBOX = CoverageBbox(min_lat=37.25, max_lat=38.2, min_lng=-122.78, max_lng=-121.8)
+
+
+def _compute_coverage() -> CoverageResponse:
+    """Build coverage response with the actual data collection bbox.
+
+    The bbox is the authoritative boundary — it defines where AIS and
+    ADS-B data is collected. H3 cells are the minimal set needed to
+    query all data within the bbox at each resolution. At coarse
+    resolutions (3-4), cells extend beyond the bbox — clients should
+    use the bbox for map fitting and the cells for API queries.
+    """
+    h3_cells: dict[int, list[str]] = {}
+    for res in config.tiling.resolutions:
+        cells = set()
+        # Sample the bbox interior to find all cells that contain data
+        for lat in [_BBOX.min_lat, _BBOX.max_lat,
+                    (_BBOX.min_lat + _BBOX.max_lat) / 2]:
+            for lng in [_BBOX.min_lng, _BBOX.max_lng,
+                        (_BBOX.min_lng + _BBOX.max_lng) / 2]:
+                cells.add(h3.latlng_to_cell(lat, lng, res))
+        h3_cells[res] = sorted(cells)
+    return CoverageResponse(bbox=_BBOX, h3_cells=h3_cells)
+
+
+_coverage = _compute_coverage()
 
 # Lazy reference to feed manager
 _feed_manager = None
@@ -68,6 +100,7 @@ async def health() -> HealthResponse:
             resolutions=config.tiling.resolutions,
             context_window=config.fm.context_window_size,
         ),
+        coverage=_coverage,
     )
 
 

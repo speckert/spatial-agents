@@ -384,10 +384,17 @@ class FeedManager:
                 logger.info("AIS WebSocket connecting...")
                 self._ais_error = None
 
+                _ais_batch_count = 0
                 async for record in self._aisstream.stream():
                     if not self._running:
                         break
                     self._ais_msg_count += 1
+                    _ais_batch_count += 1
+                    if _ais_batch_count % 100 == 0:
+                        logger.info(
+                            "AIS streaming: %d vessels tracked, %d msgs this session",
+                            len(self._vessel_latest), _ais_batch_count,
+                        )
                     self._vessel_buffer.append(record)
                     self._vessel_latest[record.mmsi] = record
                     self._update_track(

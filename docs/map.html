@@ -192,10 +192,11 @@
 const API = window.location.hostname === 'agents.specktech.com'
   ? ''
   : 'http://127.0.0.1:8012';
-const H3_CELLS = ['832830fffffffff', '832834fffffffff'];
+let H3_CELLS = [];
 const RESOLUTION = 3;
 const VESSEL_REFRESH_MS = 45000;
 const AIRCRAFT_REFRESH_MS = 22000;
+let coverageBbox = null; // set from /health API
 
 const VESSEL_COLORS = {
   tanker: '#f43f5e', cargo: '#3b82f6', passenger: '#10b981',
@@ -340,12 +341,11 @@ const map = new maplibregl.Map({
   minZoom: 7,
 });
 
-// Fit map to the data coverage bbox on load and window resize
-const COVERAGE_BOUNDS = [[-122.78, 37.25], [-121.8, 38.2]];
 function fitToCoverage() {
-  map.fitBounds(COVERAGE_BOUNDS, { padding: { top: 56, bottom: 16, left: 16, right: 16 }, maxZoom: 14 });
+  if (!coverageBbox) return;
+  const bounds = [[coverageBbox.min_lng, coverageBbox.min_lat], [coverageBbox.max_lng, coverageBbox.max_lat]];
+  map.fitBounds(bounds, { padding: { top: 56, bottom: 16, left: 16, right: 16 }, maxZoom: 14 });
 }
-map.once('load', fitToCoverage);
 window.addEventListener('resize', () => { clearTimeout(window._resizeTimer); window._resizeTimer = setTimeout(fitToCoverage, 200); });
 
 map.addControl(new maplibregl.NavigationControl(), 'top-right');
@@ -620,13 +620,28 @@ function initLayers() {
 
 // --- Init & polling ---
 map.on('load', async () => {
-  // --- Data collection bounding box (unified AIS + ADS-B) ---
-  const COVERAGE_BBOX = [[-122.78, 37.25], [-121.8, 37.25], [-121.8, 38.2], [-122.78, 38.2], [-122.78, 37.25]];
+  // Fetch coverage and H3 cells from server
+  try {
+    const healthRes = await fetch(`${API}/health`);
+    const health = await healthRes.json();
+    coverageBbox = health.coverage.bbox;
+    H3_CELLS = health.coverage.h3_cells[String(RESOLUTION)] || [];
+    console.log(`Coverage: bbox=${JSON.stringify(coverageBbox)}, h3_cells=${H3_CELLS}`);
+  } catch (e) {
+    console.error('Failed to fetch coverage from /health, using defaults', e);
+    coverageBbox = { min_lat: 37.25, max_lat: 38.2, min_lng: -122.78, max_lng: -121.8 };
+    H3_CELLS = ['832830fffffffff', '832834fffffffff'];
+  }
 
+  // Fit map to coverage area
+  fitToCoverage();
+
+  // Draw coverage bounding box
+  const b = coverageBbox;
+  const bboxCoords = [[b.min_lng, b.min_lat], [b.max_lng, b.min_lat], [b.max_lng, b.max_lat], [b.min_lng, b.max_lat], [b.min_lng, b.min_lat]];
   map.addSource('coverage-bbox', {
     type: 'geojson',
-    data: { type: 'Feature', geometry: { type: 'LineString', coordinates: COVERAGE_BBOX },
-            properties: {} },
+    data: { type: 'Feature', geometry: { type: 'LineString', coordinates: bboxCoords }, properties: {} },
   });
   map.addLayer({
     id: 'coverage-bbox-line', type: 'line', source: 'coverage-bbox',

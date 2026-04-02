@@ -9,10 +9,12 @@ Requires a free API key from https://aisstream.io
 Version History:
     0.1.0  2026-03-29  Initial aisstream.io WebSocket client
     0.2.0  2026-03-31  Unified bounding box with ADS-B coverage area
+    0.3.0  2026-04-02  Added 60-second silence watchdog warning for upstream outages
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -129,21 +131,51 @@ class AISStreamClient:
         async with websockets.connect(self._endpoint) as ws:
             await ws.send(subscription)
             logger.info(
-                "AISStream connected — endpoint: %s, bboxes: %d",
+                "AISStream connected — endpoint: %s, bboxes: %d, "
+                "subscription: %s",
                 self._endpoint,
                 len(self._bounding_boxes),
+                subscription,
             )
 
-            async for raw_msg in ws:
-                self._message_count += 1
-                try:
-                    data = json.loads(raw_msg)
-                    record = self._parse_message(data)
-                    if record is not None:
-                        yield record
-                except Exception as exc:
-                    self._error_count += 1
-                    logger.debug("AISStream parse error: %s", exc)
+            first_msg_received = False
+            silence_warned = False
+
+            async def _silence_watchdog() -> None:
+                """Warn if no messages arrive within 2 minutes of connecting."""
+                nonlocal silence_warned
+                await asyncio.sleep(120)
+                if not first_msg_received:
+                    silence_warned = True
+                    logger.warning(
+                        "AISStream connected but no messages received after 2 min "
+                        "— possible upstream outage or invalid subscription. "
+                        "Subscription: endpoint=%s, bboxes=%s, "
+                        "filter=%s, api_key=%s...%s",
+                        self._endpoint,
+                        self._bounding_boxes,
+                        ["PositionReport", "ShipStaticData"],
+                        self._api_key[:4] if self._api_key else "NONE",
+                        self._api_key[-4:] if self._api_key else "",
+                    )
+
+            watchdog = asyncio.create_task(_silence_watchdog())
+            try:
+                async for raw_msg in ws:
+                    if not first_msg_received:
+                        first_msg_received = True
+                        watchdog.cancel()
+                    self._message_count += 1
+                    try:
+                        data = json.loads(raw_msg)
+                        record = self._parse_message(data)
+                        if record is not None:
+                            yield record
+                    except Exception as exc:
+                        self._error_count += 1
+                        logger.debug("AISStream parse error: %s", exc)
+            finally:
+                watchdog.cancel()
 
     def _parse_message(self, data: dict[str, Any]) -> VesselRecord | None:
         """Parse an aisstream.io JSON message into a VesselRecord."""
