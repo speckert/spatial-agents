@@ -6,7 +6,12 @@
       "Bash(curl -s http://127.0.0.1:8012/health)",
       "Bash(python3 -m json.tool)",
       "Bash(curl -s http://127.0.0.1:8012/api/budget)",
-      "Bash(curl -s \"http://127.0.0.1:8012/api/vessels/862830817ffffff\")"
+      "Bash(curl -s \"http://127.0.0.1:8012/api/vessels/862830817ffffff\")",
+      "Bash(.venv/bin/pytest tests/ -v --tb=short 2>&1)",
+      "Bash(curl -s http://localhost:8012/api/vessels)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'bbox endpoint: {d[\\\\\"count\\\\\"]} vessels'\\)\")",
+      "Bash(curl -s http://localhost:8012/api/aircraft)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'bbox endpoint: {d[\\\\\"count\\\\\"]} aircraft'\\)\")"
     ]
   }
 }

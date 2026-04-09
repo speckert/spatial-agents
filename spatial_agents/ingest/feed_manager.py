@@ -13,6 +13,8 @@ Version History:
     0.4.0  2026-04-02  Flight phase state machine — enforces valid transitions
                        (ground→departure→climbing→cruising→descending→approach→ground),
                        handles go-arounds and missed approaches
+    0.5.0  2026-04-09  Bbox driven by centralized REGION in config.py,
+                       periodic feed status logger (60s) with AIS flow warnings
 """
 
 from __future__ import annotations
@@ -24,8 +26,8 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Callable
 
-from spatial_agents.config import config
-from spatial_agents.ingest.adsb_parser import ADSBParser, BAY_AREA_BBOX
+from spatial_agents.config import REGION, config
+from spatial_agents.ingest.adsb_parser import ADSBParser, REGION_BBOX
 from spatial_agents.ingest.ais_parser import AISParser
 from spatial_agents.ingest.aisstream_client import AISStreamClient
 from spatial_agents.models import AircraftRecord, FeedStatus, VesselRecord
@@ -206,6 +208,7 @@ class FeedManager:
         self._tasks = [
             asyncio.create_task(self._adsb_poll_loop(), name="adsb_poll"),
             asyncio.create_task(self._vessel_cleanup_loop(), name="vessel_cleanup"),
+            asyncio.create_task(self._feed_status_loop(), name="feed_status"),
         ]
         # Start AIS WebSocket if API key is configured
         if config.feeds.ais_api_key:
@@ -281,7 +284,7 @@ class FeedManager:
 
         while self._running:
             try:
-                records = await self._adsb_parser.fetch_region(BAY_AREA_BBOX)
+                records = await self._adsb_parser.fetch_region(REGION_BBOX)
                 now = datetime.now(timezone.utc)
                 self._adsb_last_msg = now
                 self._adsb_error = None
@@ -327,8 +330,8 @@ class FeedManager:
     # --- Vessel Cleanup Loop ---
 
     # Bounding box for "near edge" detection (matching AIS/ADS-B bbox)
-    _BBOX_LAT_MIN, _BBOX_LAT_MAX = 37.25, 38.2
-    _BBOX_LNG_MIN, _BBOX_LNG_MAX = -122.78, -121.8
+    _BBOX_LAT_MIN, _BBOX_LAT_MAX = REGION[0], REGION[1]
+    _BBOX_LNG_MIN, _BBOX_LNG_MAX = REGION[2], REGION[3]
     _EDGE_MARGIN = 0.05  # ~5.5 km — "near edge" threshold
 
     def _is_near_edge(self, lat: float, lng: float) -> bool:
@@ -369,6 +372,40 @@ class FeedManager:
                 break
             except Exception as exc:
                 logger.error("Vessel cleanup error: %s", exc)
+
+    # --- Periodic Feed Status ---
+
+    async def _feed_status_loop(self) -> None:
+        """Log feed flow status every 60 seconds."""
+        prev_ais = 0
+        prev_adsb = 0
+        while self._running:
+            try:
+                await asyncio.sleep(60)
+                ais_delta = self._ais_msg_count - prev_ais
+                adsb_delta = self._adsb_msg_count - prev_adsb
+                prev_ais = self._ais_msg_count
+                prev_adsb = self._adsb_msg_count
+
+                ais_age = ""
+                if self._ais_last_msg:
+                    age_s = (datetime.now(timezone.utc) - self._ais_last_msg).total_seconds()
+                    ais_age = f", last msg {age_s:.0f}s ago"
+                else:
+                    ais_age = ", no msgs yet"
+
+                level = logging.WARNING if ais_delta == 0 else logging.INFO
+                logger.log(
+                    level,
+                    "Feed status — AIS: %d msgs/min, %d vessels tracked%s | "
+                    "ADS-B: %d msgs/min, %d aircraft tracked",
+                    ais_delta, len(self._vessel_latest), ais_age,
+                    adsb_delta, len(self._aircraft_latest),
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.error("Feed status loop error: %s", exc)
 
     # --- AIS WebSocket Loop ---
 

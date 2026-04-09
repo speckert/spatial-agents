@@ -10,6 +10,7 @@ Version History:
     0.1.0  2026-03-29  Initial aisstream.io WebSocket client
     0.2.0  2026-03-31  Unified bounding box with ADS-B coverage area
     0.3.0  2026-04-02  Added 60-second silence watchdog warning for upstream outages
+    0.4.0  2026-04-09  Bbox driven by centralized REGION in config.py
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from typing import Any, AsyncIterator
 import h3
 import websockets
 
-from spatial_agents.config import config
+from spatial_agents.config import REGION, config
 from spatial_agents.models import GeoPosition, VesselRecord, VesselType
 
 logger = logging.getLogger(__name__)
@@ -41,8 +42,8 @@ _AIS_TYPE_MAP: dict[range, VesselType] = {
     range(40, 50): VesselType.HIGH_SPEED,
 }
 
-# SF Bay Area bounding box: [[lat_min, lng_min], [lat_max, lng_max]]
-BAY_AREA_BBOX = [[37.25, -122.78], [38.2, -121.8]]
+# Bbox in AISStream format: [[lat_min, lng_min], [lat_max, lng_max]]
+REGION_BBOX = [[REGION[0], REGION[2]], [REGION[1], REGION[3]]]
 
 
 def _classify_vessel_type(ais_type: int | None) -> VesselType:
@@ -73,7 +74,7 @@ def _build_subscription(
     """Build the aisstream.io subscription message."""
     return json.dumps({
         "APIKey": api_key,
-        "BoundingBoxes": bounding_boxes or [BAY_AREA_BBOX],
+        "BoundingBoxes": bounding_boxes or [REGION_BBOX],
         "FilterMessageTypes": ["PositionReport", "ShipStaticData"],
     })
 
@@ -99,7 +100,7 @@ class AISStreamClient:
     ) -> None:
         self._api_key = api_key or config.feeds.ais_api_key
         self._endpoint = endpoint or "wss://stream.aisstream.io/v0/stream"
-        self._bounding_boxes = bounding_boxes or [BAY_AREA_BBOX]
+        self._bounding_boxes = bounding_boxes or [REGION_BBOX]
         self._static_data: dict[str, dict[str, Any]] = {}  # MMSI → static info
         self._message_count = 0
         self._error_count = 0

@@ -9,6 +9,8 @@ Version History:
                        ADS-B poll interval to 60s, added OpenSky auth credentials
     0.3.0  2026-03-31  Switched to OAuth2 client_id/client_secret, unified
                        AIS+ADS-B bounding box, poll interval to 45s
+    0.4.0  2026-04-09  Centralized REGION bbox with named presets
+                       (san_francisco, persian_gulf) — single line to switch
 """
 
 from __future__ import annotations
@@ -26,6 +28,15 @@ class DeploymentMode(str, Enum):
     """Deployment target — determines serving and storage behavior."""
     LOCAL_MAC = "local_mac"    # M1 Mini, FastAPI on LAN, local tile storage
     CLOUD = "cloud"            # S3 tile storage, cloud-hosted API
+
+
+# Named region presets — switch active region by changing REGION below
+REGIONS: dict[str, tuple[float, float, float, float]] = {
+    # (min_lat, max_lat, min_lng, max_lng)
+    "san_francisco": (37.25, 38.2, -122.78, -121.8),
+    "persian_gulf":  (23.5, 30.5, 47.5, 59.5),
+}
+REGION = REGIONS["persian_gulf"]
 
 
 class FeedConfig(BaseModel):

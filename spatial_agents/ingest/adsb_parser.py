@@ -12,6 +12,7 @@ Version History:
     0.3.0  2026-03-31  Switched to OAuth2 client credentials, exponential
                        backoff, tighter Bay Area bbox
     0.4.0  2026-04-02  Added flight_phase classification at ingest time
+    0.5.0  2026-04-09  Bbox driven by centralized REGION in config.py
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from typing import Any
 import h3
 import httpx
 
-from spatial_agents.config import config
+from spatial_agents.config import REGION, config
 from spatial_agents.models import AircraftCategory, AircraftRecord, GeoPosition, classify_flight_phase
 
 logger = logging.getLogger(__name__)
@@ -66,8 +67,8 @@ GLOBAL_REGIONS: list[tuple[str, tuple[float, float, float, float]]] = [
     ("africa", (-40.0, 38.0, -20.0, 55.0)),
 ]
 
-# Bay Area region — SFO, OAK, SF, Marin, and East Bay
-BAY_AREA_BBOX: tuple[float, float, float, float] = (37.25, 38.2, -122.78, -121.8)
+# Active region bbox: (min_lat, max_lat, min_lng, max_lng)
+REGION_BBOX = REGION
 
 
 def _assign_h3_cells(lat: float, lng: float) -> dict[int, str]:
@@ -90,7 +91,7 @@ class ADSBParser:
 
     Usage:
         parser = ADSBParser()
-        records = await parser.fetch_region(BAY_AREA_BBOX)
+        records = await parser.fetch_region(REGION_BBOX)
         for r in records:
             print(r.callsign, r.position)
     """
@@ -175,7 +176,7 @@ class ADSBParser:
             List of AircraftRecord with H3 cells assigned.
         """
         if bbox is None:
-            bbox = BAY_AREA_BBOX
+            bbox = REGION_BBOX
 
         # Skip if backing off from a 429
         now = time.monotonic()

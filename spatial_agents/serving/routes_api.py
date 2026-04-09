@@ -7,6 +7,8 @@ Version History:
                        aircraft endpoint responses
     0.3.0  2026-04-02  Typed Pydantic response models for OpenAPI spec
                        generation with full field documentation
+    0.4.0  2026-04-09  Added /vessels and /aircraft bbox endpoints (return all
+                       entities without H3 cell queries)
 """
 
 from __future__ import annotations
@@ -52,6 +54,54 @@ def set_feed_manager(manager: Any) -> None:
     """Set the feed manager reference (called during app startup)."""
     global _feed_manager
     _feed_manager = manager
+
+
+@router.get("/vessels", response_model=VesselResponse)
+async def get_all_vessels() -> VesselResponse:
+    """Return all live vessel positions within the coverage area."""
+    if _feed_manager is None:
+        raise HTTPException(503, "Feed manager not initialized")
+
+    vessels = _feed_manager.get_latest_vessels()
+    vessel_list = []
+    for v in vessels:
+        track = _feed_manager.get_vessel_track(v.mmsi)
+        vessel_list.append(VesselWithTrack(
+            **v.model_dump(),
+            track=track,
+            track_points=len(track),
+        ))
+    return VesselResponse(
+        h3_cell="all",
+        resolution=0,
+        count=len(vessels),
+        vessels=vessel_list,
+        timestamp=datetime.now(timezone.utc),
+    )
+
+
+@router.get("/aircraft", response_model=AircraftResponse)
+async def get_all_aircraft() -> AircraftResponse:
+    """Return all live aircraft positions within the coverage area."""
+    if _feed_manager is None:
+        raise HTTPException(503, "Feed manager not initialized")
+
+    aircraft = _feed_manager.get_latest_aircraft()
+    aircraft_list = []
+    for a in aircraft:
+        track = _feed_manager.get_aircraft_track(a.icao24)
+        aircraft_list.append(AircraftWithTrack(
+            **a.model_dump(),
+            track=track,
+            track_points=len(track),
+        ))
+    return AircraftResponse(
+        h3_cell="all",
+        resolution=0,
+        count=len(aircraft),
+        aircraft=aircraft_list,
+        timestamp=datetime.now(timezone.utc),
+    )
 
 
 @router.get("/vessels/{h3_cell}", response_model=VesselResponse)

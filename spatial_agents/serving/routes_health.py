@@ -4,6 +4,7 @@ Health Routes — Pipeline status, feed freshness, and diagnostics.
 Version History:
     0.1.0  2026-03-28  Initial health routes
     0.2.0  2026-04-02  Typed Pydantic response models for OpenAPI spec
+    0.3.0  2026-04-09  Bbox driven by centralized REGION in config.py
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from fastapi import APIRouter
 
 import h3
 
-from spatial_agents.config import config
+from spatial_agents.config import REGION, config
 from spatial_agents.models import (
     CoverageBbox,
     CoverageResponse,
@@ -29,8 +30,8 @@ router = APIRouter()
 
 _start_time = time.monotonic()
 
-# Collection bounding box (must match aisstream_client and adsb_parser)
-_BBOX = CoverageBbox(min_lat=37.25, max_lat=38.2, min_lng=-122.78, max_lng=-121.8)
+# Collection bounding box — driven by REGION in config.py
+_BBOX = CoverageBbox(min_lat=REGION[0], max_lat=REGION[1], min_lng=REGION[2], max_lng=REGION[3])
 
 
 def _compute_coverage() -> CoverageResponse:

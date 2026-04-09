@@ -90,11 +90,25 @@
   .info-close:hover { color: var(--text-primary); }
 
   .legend {
-    position: absolute; top: 64px; right: 1.25rem; z-index: 10;
+    position: absolute; bottom: 2.75rem; right: 1.25rem; z-index: 10;
     background: var(--bg-panel); backdrop-filter: blur(12px);
     border: 1px solid var(--border); border-radius: 8px;
     padding: 0.75rem 1rem; font-size: 0.7rem;
+    transition: opacity 0.5s;
   }
+  .legend.collapsed {
+    padding: 0; border: none; background: none; backdrop-filter: none;
+  }
+  .legend-btn {
+    display: none; font-family: var(--font-mono); font-size: 0.65rem;
+    letter-spacing: 0.05em; padding: 0.4rem 0.8rem; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--bg-panel);
+    backdrop-filter: blur(12px); color: var(--text-secondary);
+    cursor: pointer; transition: all 0.2s;
+  }
+  .legend-btn:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+  .legend.collapsed .legend-btn { display: block; }
+  .legend.collapsed .legend-content { display: none; }
   .legend-section {
     font-family: var(--font-mono); font-size: 0.6rem; text-transform: uppercase;
     letter-spacing: 0.08em; color: var(--accent-cyan); margin-top: 0.5rem;
@@ -132,7 +146,7 @@
     color: var(--text-secondary); letter-spacing: 0.04em;
   }
 
-  .maplibregl-ctrl-top-right { top: 56px; right: 160px; }
+  .maplibregl-ctrl-top-right { top: 56px; }
 
   @media (max-width: 768px) {
     .info-panel { left: 0.75rem; right: 0.75rem; min-width: auto; max-width: none; }
@@ -147,7 +161,7 @@
 <div class="header">
   <div class="header-left">
     <a href="index.html" class="header-title">Spatial Agents</a>
-    <span class="header-subtitle">San Francisco Bay — Live</span>
+    <span class="header-subtitle">Persian Gulf — Live</span>
   </div>
   <div class="header-right">
     <span class="entity-count"><span class="status-dot"></span><strong id="vessel-count">—</strong> vessels, <strong id="aircraft-count">—</strong> aircraft</span>
@@ -163,27 +177,30 @@
   <div id="info-rows"></div>
 </div>
 
-<div class="legend">
-  <div class="legend-section">Vessels</div>
-  <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#f43f5e"/></svg>Tanker</div>
-  <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#3b82f6"/></svg>Cargo</div>
-  <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#10b981"/></svg>Passenger</div>
-  <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#f59e0b"/></svg>Tug</div>
-  <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#8b5cf6"/></svg>Fishing</div>
-  <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#06b6d4"/></svg>Other</div>
-  <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#64748b"/></svg>Unknown</div>
-  <div class="legend-section">Aircraft</div>
-  <div class="legend-item"><div class="legend-plane-icon" style="color:#22d3ee">&#x2708;</div>Departure</div>
-  <div class="legend-item"><div class="legend-plane-icon" style="color:#10b981">&#x2708;</div>Climbing</div>
-  <div class="legend-item"><div class="legend-plane-icon" style="color:#3b82f6">&#x2708;</div>Cruising</div>
-  <div class="legend-item"><div class="legend-plane-icon" style="color:#f59e0b">&#x2708;</div>Descending</div>
-  <div class="legend-item"><div class="legend-plane-icon" style="color:#f43f5e">&#x2708;</div>Approach</div>
-  <div class="legend-item"><div class="legend-plane-icon" style="color:#78716c">&#x2708;</div>On Ground</div>
-  <div class="legend-section">Coverage</div>
-  <div class="legend-item"><div style="width:16px;height:2px;border-top:2px dashed #06b6d4;flex-shrink:0"></div>Data Collection</div>
-  <div class="trail-toggle" id="trail-toggle" onclick="toggleLongTail()">
-    <div class="toggle-track" id="toggle-track"><div class="toggle-thumb"></div></div>
-    <span class="toggle-label" id="toggle-label">Short Tail (~45s)</span>
+<div class="legend" id="legend">
+  <button class="legend-btn" onclick="expandLegend()">Legend</button>
+  <div class="legend-content">
+    <div class="legend-section">Vessels</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#f43f5e"/></svg>Tanker</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#3b82f6"/></svg>Cargo</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#10b981"/></svg>Passenger</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#f59e0b"/></svg>Tug</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#8b5cf6"/></svg>Fishing</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#06b6d4"/></svg>Other</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#64748b"/></svg>Unknown</div>
+    <div class="legend-section">Aircraft</div>
+    <div class="legend-item"><div class="legend-plane-icon" style="color:#22d3ee">&#x2708;</div>Departure</div>
+    <div class="legend-item"><div class="legend-plane-icon" style="color:#10b981">&#x2708;</div>Climbing</div>
+    <div class="legend-item"><div class="legend-plane-icon" style="color:#3b82f6">&#x2708;</div>Cruising</div>
+    <div class="legend-item"><div class="legend-plane-icon" style="color:#f59e0b">&#x2708;</div>Descending</div>
+    <div class="legend-item"><div class="legend-plane-icon" style="color:#f43f5e">&#x2708;</div>Approach</div>
+    <div class="legend-item"><div class="legend-plane-icon" style="color:#78716c">&#x2708;</div>On Ground</div>
+    <div class="legend-section">Coverage</div>
+    <div class="legend-item"><div style="width:16px;height:2px;border-top:2px dashed #06b6d4;flex-shrink:0"></div>Data Collection</div>
+    <div class="trail-toggle" id="trail-toggle" onclick="toggleLongTail()">
+      <div class="toggle-track on" id="toggle-track"><div class="toggle-thumb"></div></div>
+      <span class="toggle-label" id="toggle-label">Long Tail (~3 min)</span>
+    </div>
   </div>
 </div>
 
@@ -249,7 +266,16 @@ function catmullRom(p0, p1, p2, p3, t) {
   ];
 }
 
-let longTailMode = false;
+let longTailMode = true;
+
+function expandLegend() {
+  const el = document.getElementById('legend');
+  el.classList.remove('collapsed');
+  clearTimeout(window._legendTimer);
+  window._legendTimer = setTimeout(() => el.classList.add('collapsed'), 5000);
+}
+
+setTimeout(() => document.getElementById('legend').classList.add('collapsed'), 5000);
 
 function toggleLongTail() {
   longTailMode = !longTailMode;
@@ -335,10 +361,10 @@ const map = new maplibregl.Map({
       minzoom: 0, maxzoom: 19,
     }],
   },
-  center: [-122.29, 37.725],
-  zoom: 10,
+  center: [53.5, 27.0],
+  zoom: 6,
   maxZoom: 18,
-  minZoom: 7,
+  minZoom: 4,
 });
 
 function fitToCoverage() {
@@ -397,16 +423,8 @@ function aircraftToFeature(a) {
 
 async function fetchVessels() {
   try {
-    const results = await Promise.all(
-      H3_CELLS.map(c => fetch(`${API}/api/vessels/${c}?resolution=${RESOLUTION}`).then(r => r.json()))
-    );
-    const seen = new Set();
-    const entities = [];
-    for (const data of results) {
-      for (const v of data.vessels) {
-        if (!seen.has(v.mmsi)) { seen.add(v.mmsi); entities.push(vesselToFeature(v)); }
-      }
-    }
+    const data = await fetch(`${API}/api/vessels`).then(r => r.json());
+    const entities = data.vessels.map(v => vesselToFeature(v));
     document.getElementById('vessel-count').textContent = entities.length;
     return entities;
   } catch (e) { console.error('Vessel fetch error:', e); return null; }
@@ -414,16 +432,8 @@ async function fetchVessels() {
 
 async function fetchAircraft() {
   try {
-    const results = await Promise.all(
-      H3_CELLS.map(c => fetch(`${API}/api/aircraft/${c}?resolution=${RESOLUTION}`).then(r => r.json()))
-    );
-    const seen = new Set();
-    const entities = [];
-    for (const data of results) {
-      for (const a of data.aircraft) {
-        if (!seen.has(a.icao24)) { seen.add(a.icao24); entities.push(aircraftToFeature(a)); }
-      }
-    }
+    const data = await fetch(`${API}/api/aircraft`).then(r => r.json());
+    const entities = data.aircraft.map(a => aircraftToFeature(a));
     document.getElementById('aircraft-count').textContent = entities.length;
     return entities;
   } catch (e) { console.error('Aircraft fetch error:', e); return null; }
@@ -629,8 +639,8 @@ map.on('load', async () => {
     console.log(`Coverage: bbox=${JSON.stringify(coverageBbox)}, h3_cells=${H3_CELLS}`);
   } catch (e) {
     console.error('Failed to fetch coverage from /health, using defaults', e);
-    coverageBbox = { min_lat: 37.25, max_lat: 38.2, min_lng: -122.78, max_lng: -121.8 };
-    H3_CELLS = ['832830fffffffff', '832834fffffffff'];
+    coverageBbox = { min_lat: 23.5, max_lat: 30.5, min_lng: 47.5, max_lng: 59.5 };
+    H3_CELLS = [];
   }
 
   // Fit map to coverage area
