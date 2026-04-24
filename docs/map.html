@@ -251,8 +251,11 @@ let activeRegion = null; // current region name
 
 const REGION_DISPLAY = {
   san_francisco: 'San Francisco',
-  persian_gulf: 'Strait of Hormuz',
+  boston: 'Boston',
 };
+
+// External map fallback — opens provider site for regions we don't ingest
+const OTHER_MAP_URL = 'https://www.marinetraffic.com/en/ais/home/centerx:56/centery:26/zoom:8';
 
 const VESSEL_COLORS = {
   tanker: '#f43f5e', cargo: '#3b82f6', passenger: '#10b981',
@@ -759,6 +762,13 @@ map.on('load', async () => {
       btn.onclick = () => switchRegion(name);
       switcher.appendChild(btn);
     });
+
+    // "Other" button — redirects to external provider map for regions we don't ingest
+    const otherBtn = document.createElement('button');
+    otherBtn.className = 'region-btn';
+    otherBtn.textContent = 'Other';
+    otherBtn.onclick = () => { window.open(OTHER_MAP_URL, '_blank', 'noopener'); };
+    switcher.appendChild(otherBtn);
     document.getElementById('region-subtitle').textContent = (REGION_DISPLAY[defaultRegion] || defaultRegion) + ' — Live';
   } catch (e) {
     console.error('Failed to fetch coverage from /health, using defaults', e);

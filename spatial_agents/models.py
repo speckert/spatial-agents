@@ -12,6 +12,8 @@ Version History:
                        classify_flight_phase() function
     0.3.0  2026-04-24  Added regions dict to HealthResponse for
                        multi-region support — Claude Opus 4.6
+    0.3.1  2026-04-24  CoverageResponse docstring updated to reference
+                       boston instead of persian_gulf — Claude Opus 4
 """
 
 from __future__ import annotations
@@ -377,7 +379,7 @@ class CoverageBbox(BaseModel):
 class CoverageResponse(BaseModel):
     """Data collection coverage area — actual bounds and H3 cell index."""
     region: str = Field(
-        description="Active region name (e.g. san_francisco, persian_gulf)",
+        description="Active region name (e.g. san_francisco, boston)",
     )
     bbox: CoverageBbox = Field(
         description="Rectangular region where AIS and ADS-B data is actively collected. "

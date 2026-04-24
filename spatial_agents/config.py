@@ -13,6 +13,8 @@ Version History:
                        (san_francisco, persian_gulf) — single line to switch
     0.5.0  2026-04-24  ACTIVE_REGIONS list for simultaneous multi-region
                        ingest (SF + Persian Gulf) — Claude Opus 4.6
+    0.6.0  2026-04-24  Dropped persian_gulf (no free-tier AIS coverage),
+                       added boston as second region — Claude Opus 4
 """
 
 from __future__ import annotations
@@ -36,22 +38,14 @@ class DeploymentMode(str, Enum):
 REGIONS: dict[str, tuple[float, float, float, float]] = {
     # (min_lat, max_lat, min_lng, max_lng)
     "san_francisco": (37.25, 38.2, -122.78, -121.8),
-    "persian_gulf":  (23.5, 30.5, 47.5, 59.5),
+    "boston":        (41.9, 42.8, -71.3, -70.3),
 }
-ACTIVE_REGIONS: list[str] = ["san_francisco", "persian_gulf"]
+ACTIVE_REGIONS: list[str] = ["san_francisco", "boston"]
 REGION_NAME = ACTIVE_REGIONS[0]  # default / backward compat
 REGION = REGIONS[REGION_NAME]
 
 # Per-region advisories — shown to clients via /health coverage response
-REGION_ADVISORIES: dict[str, list[str]] = {
-    "persian_gulf": [
-        "AIS data in the Strait of Hormuz is subject to GPS jamming, "
-        "spoofing, and electronic warfare. Vessel positions may be "
-        "inaccurate, delayed, or missing entirely.",
-        "AISStream terrestrial receiver coverage in the Persian Gulf "
-        "is sparse. Expect intermittent vessel data.",
-    ],
-}
+REGION_ADVISORIES: dict[str, list[str]] = {}
 
 
 class FeedConfig(BaseModel):
