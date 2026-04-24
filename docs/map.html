@@ -48,6 +48,14 @@
     color: var(--text-secondary); text-decoration: none; transition: all 0.2s;
   }
   .nav-link:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+  .region-btn {
+    font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.05em;
+    padding: 0.35rem 0.8rem; border-radius: 5px; border: 1px solid var(--border);
+    color: var(--text-secondary); background: none; cursor: pointer; transition: all 0.2s;
+  }
+  .region-btn:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+  .region-btn.active { border-color: var(--accent-cyan); color: var(--accent-cyan); background: rgba(6, 182, 212, 0.1); }
+  #region-switcher { display: flex; gap: 0.4rem; }
   .status-dot {
     width: 8px; height: 8px; border-radius: 50%; background: #10b981;
     display: inline-block; margin-right: 0.35rem;
@@ -120,8 +128,8 @@
     color: var(--text-secondary);
   }
   .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  .legend-svg { width: 14px; height: 14px; flex-shrink: 0; }
-  .legend-plane-icon { width: 14px; flex-shrink: 0; font-size: 14px; line-height: 1; text-align: center; }
+  .legend-svg { width: 22px; height: 22px; flex-shrink: 0; }
+  .legend-plane-icon { width: 22px; flex-shrink: 0; font-size: 22px; line-height: 1; text-align: center; }
 
   .trail-toggle {
     margin-top: 0.6rem; padding-top: 0.5rem;
@@ -146,6 +154,23 @@
     color: var(--text-secondary); letter-spacing: 0.04em;
   }
 
+  .advisory-banner {
+    display: none; position: absolute; top: 48px; left: 0; right: 0; z-index: 10;
+    background: rgba(180, 83, 9, 0.92); backdrop-filter: blur(8px);
+    border-bottom: 1px solid #d97706;
+    padding: 0.5rem 1.25rem; font-size: 0.75rem; color: #fef3c7;
+    line-height: 1.4;
+  }
+  .advisory-banner.visible { display: flex; align-items: flex-start; gap: 0.75rem; }
+  .advisory-icon { font-size: 1rem; flex-shrink: 0; margin-top: 0.05rem; }
+  .advisory-text { flex: 1; }
+  .advisory-dismiss {
+    background: none; border: 1px solid rgba(254, 243, 199, 0.3); border-radius: 4px;
+    color: #fef3c7; font-family: var(--font-mono); font-size: 0.6rem;
+    padding: 0.2rem 0.5rem; cursor: pointer; flex-shrink: 0;
+  }
+  .advisory-dismiss:hover { border-color: #fef3c7; }
+
   .maplibregl-ctrl-top-right { top: 56px; }
 
   @media (max-width: 768px) {
@@ -158,12 +183,19 @@
 
 <div id="map"></div>
 
+<div class="advisory-banner" id="advisory-banner">
+  <span class="advisory-icon">&#x26A0;</span>
+  <div class="advisory-text" id="advisory-text"></div>
+  <button class="advisory-dismiss" onclick="_advisoryDismissed=true;document.getElementById('advisory-banner').classList.remove('visible')">Dismiss</button>
+</div>
+
 <div class="header">
   <div class="header-left">
     <a href="index.html" class="header-title">Spatial Agents</a>
-    <span class="header-subtitle">Persian Gulf — Live</span>
+    <span class="header-subtitle" id="region-subtitle">San Francisco — Live</span>
   </div>
   <div class="header-right">
+    <div id="region-switcher"></div>
     <span class="entity-count"><span class="status-dot"></span><strong id="vessel-count">—</strong> vessels, <strong id="aircraft-count">—</strong> aircraft</span>
     <a href="dag.html" class="nav-link">Causal DAG</a>
     <a href="index.html" class="nav-link">Overview</a>
@@ -181,13 +213,13 @@
   <button class="legend-btn" onclick="expandLegend()">Legend</button>
   <div class="legend-content">
     <div class="legend-section">Vessels</div>
-    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#f43f5e"/></svg>Tanker</div>
-    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#3b82f6"/></svg>Cargo</div>
-    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#10b981"/></svg>Passenger</div>
-    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#f59e0b"/></svg>Tug</div>
-    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#8b5cf6"/></svg>Fishing</div>
-    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#06b6d4"/></svg>Other</div>
-    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 12,10 10,12 6,12 4,10" fill="#64748b"/></svg>Unknown</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 10.5,10 9.5,13 6.5,13 5.5,10" transform="rotate(90 8 8)" fill="#f43f5e"/></svg>Tanker</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 10.5,10 9.5,13 6.5,13 5.5,10" transform="rotate(90 8 8)" fill="#3b82f6"/></svg>Cargo</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 10.5,10 9.5,13 6.5,13 5.5,10" transform="rotate(90 8 8)" fill="#10b981"/></svg>Passenger</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 10.5,10 9.5,13 6.5,13 5.5,10" transform="rotate(90 8 8)" fill="#f59e0b"/></svg>Tug</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 10.5,10 9.5,13 6.5,13 5.5,10" transform="rotate(90 8 8)" fill="#8b5cf6"/></svg>Fishing</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 10.5,10 9.5,13 6.5,13 5.5,10" transform="rotate(90 8 8)" fill="#06b6d4"/></svg>Other</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 10.5,10 9.5,13 6.5,13 5.5,10" transform="rotate(90 8 8)" fill="#64748b"/></svg>Unknown</div>
     <div class="legend-section">Aircraft</div>
     <div class="legend-item"><div class="legend-plane-icon" style="color:#22d3ee">&#x2708;</div>Departure</div>
     <div class="legend-item"><div class="legend-plane-icon" style="color:#10b981">&#x2708;</div>Climbing</div>
@@ -214,6 +246,13 @@ const RESOLUTION = 3;
 const VESSEL_REFRESH_MS = 45000;
 const AIRCRAFT_REFRESH_MS = 22000;
 let coverageBbox = null; // set from /health API
+let allRegions = {};     // from /health .regions
+let activeRegion = null; // current region name
+
+const REGION_DISPLAY = {
+  san_francisco: 'San Francisco',
+  persian_gulf: 'Strait of Hormuz',
+};
 
 const VESSEL_COLORS = {
   tanker: '#f43f5e', cargo: '#3b82f6', passenger: '#10b981',
@@ -240,9 +279,10 @@ function getFlightPhase(a) {
 }
 
 function makePlaneIcon(color) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 32 32">
-    <path d="M16 2 L19 12 L28 14 L19 16 L16 30 L13 16 L4 14 L13 12 Z"
-          fill="${color}" stroke="#0a0e17" stroke-width="1.5"/>
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+    <text x="20" y="30" text-anchor="middle" font-size="32" fill="${color}"
+          stroke="#0a0e17" stroke-width="1" paint-order="stroke"
+          transform="rotate(-90 20 20)">✈</text>
   </svg>`;
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
@@ -250,7 +290,7 @@ function makePlaneIcon(color) {
 function makeShipIcon(color) {
   // Boat hull shape — pointed bow at top, flat stern at bottom
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24">
-    <path d="M12 3 L16 12 L15 17 L9 17 L8 12 Z"
+    <path d="M12 3 L15 12 L14.2 17 L9.8 17 L9 12 Z"
           fill="${color}" stroke="#0a0e17" stroke-width="1.2" stroke-linejoin="round"/>
   </svg>`;
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
@@ -361,8 +401,8 @@ const map = new maplibregl.Map({
       minzoom: 0, maxzoom: 19,
     }],
   },
-  center: [53.5, 27.0],
-  zoom: 6,
+  center: [-122.29, 37.725],
+  zoom: 8.5,
   maxZoom: 18,
   minZoom: 4,
 });
@@ -421,10 +461,17 @@ function aircraftToFeature(a) {
   };
 }
 
+function inActiveBbox(pos) {
+  if (!coverageBbox) return true;
+  return pos.lat >= coverageBbox.min_lat && pos.lat <= coverageBbox.max_lat
+      && pos.lng >= coverageBbox.min_lng && pos.lng <= coverageBbox.max_lng;
+}
+
 async function fetchVessels() {
   try {
     const data = await fetch(`${API}/api/vessels`).then(r => r.json());
-    const entities = data.vessels.map(v => vesselToFeature(v));
+    const filtered = data.vessels.filter(v => inActiveBbox(v.position));
+    const entities = filtered.map(v => vesselToFeature(v));
     document.getElementById('vessel-count').textContent = entities.length;
     return entities;
   } catch (e) { console.error('Vessel fetch error:', e); return null; }
@@ -433,7 +480,8 @@ async function fetchVessels() {
 async function fetchAircraft() {
   try {
     const data = await fetch(`${API}/api/aircraft`).then(r => r.json());
-    const entities = data.aircraft.map(a => aircraftToFeature(a));
+    const filtered = data.aircraft.filter(a => inActiveBbox(a.position));
+    const entities = filtered.map(a => aircraftToFeature(a));
     document.getElementById('aircraft-count').textContent = entities.length;
     return entities;
   } catch (e) { console.error('Aircraft fetch error:', e); return null; }
@@ -536,7 +584,7 @@ function initLayers() {
       id: 'vessel-icons', type: 'symbol', source: 'vessels',
       layout: {
         'icon-image': ['concat', 'ship-', ['get', 'vessel_type']],
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.45, 12, 0.7, 16, 1.1],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 4, 0.91, 6, 1.0, 8, 1.11, 12, 1.31, 16, 1.61],
         'icon-rotate': ['get', 'rotation'],
         'icon-rotation-alignment': 'map',
         'icon-allow-overlap': true,
@@ -575,7 +623,7 @@ function initLayers() {
       filter: ['!=', ['get', 'phase'], 'ground'],
       layout: {
         'icon-image': ['concat', 'plane-', ['get', 'phase']],
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.52, 12, 0.78, 16, 1.17],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 4, 0.48, 6, 0.55, 8, 0.65, 12, 0.8, 16, 1.0],
         'icon-rotate': ['get', 'rotation'],
         'icon-rotation-alignment': 'map',
         'icon-allow-overlap': true,
@@ -586,7 +634,7 @@ function initLayers() {
       filter: ['==', ['get', 'phase'], 'ground'],
       layout: {
         'icon-image': 'plane-ground',
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.35, 12, 0.55, 16, 0.85],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 4, 0.38, 6, 0.45, 8, 0.53, 12, 0.65, 16, 0.85],
         'icon-rotate': ['get', 'rotation'],
         'icon-rotation-alignment': 'map',
         'icon-allow-overlap': true,
@@ -629,17 +677,92 @@ function initLayers() {
 }
 
 // --- Init & polling ---
+let _advisoryDismissed = false;
+
+function updateAdvisories(advisories) {
+  const banner = document.getElementById('advisory-banner');
+  if (advisories.length && !_advisoryDismissed) {
+    document.getElementById('advisory-text').innerHTML = advisories.join('<br>');
+    banner.classList.add('visible');
+  } else if (!advisories.length) {
+    banner.classList.remove('visible');
+    _advisoryDismissed = false; // reset dismiss if advisories clear
+  }
+}
+
+async function refreshAdvisories() {
+  try {
+    const res = await fetch(`${API}/health`);
+    const health = await res.json();
+    if (health.regions) allRegions = health.regions;
+    const regionData = activeRegion && allRegions[activeRegion] ? allRegions[activeRegion] : health.coverage;
+    updateAdvisories(regionData.advisories || []);
+  } catch (e) { console.error('Advisory refresh error:', e); }
+}
+
+function updateCoverageBbox() {
+  const b = coverageBbox;
+  if (!b) return;
+  const coords = [[b.min_lng, b.min_lat], [b.max_lng, b.min_lat], [b.max_lng, b.max_lat], [b.min_lng, b.max_lat], [b.min_lng, b.min_lat]];
+  const src = map.getSource('coverage-bbox');
+  if (src) {
+    src.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} });
+  }
+}
+
+async function switchRegion(name) {
+  if (!allRegions[name]) return;
+  activeRegion = name;
+  const region = allRegions[name];
+  coverageBbox = region.bbox;
+  H3_CELLS = region.h3_cells[String(RESOLUTION)] || [];
+
+  // Update UI
+  document.getElementById('region-subtitle').textContent = (REGION_DISPLAY[name] || name) + ' — Live';
+  document.querySelectorAll('.region-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.region === name);
+  });
+
+  // Update map
+  updateCoverageBbox();
+  fitToCoverage();
+
+  // Update advisories
+  _advisoryDismissed = false;
+  updateAdvisories(region.advisories || []);
+
+  // Re-fetch entities filtered to new region
+  const [vessels, aircraft] = await Promise.all([fetchVessels(), fetchAircraft()]);
+  updateVessels(vessels);
+  updateAircraft(aircraft);
+}
+
 map.on('load', async () => {
   // Fetch coverage and H3 cells from server
   try {
     const healthRes = await fetch(`${API}/health`);
     const health = await healthRes.json();
-    coverageBbox = health.coverage.bbox;
-    H3_CELLS = health.coverage.h3_cells[String(RESOLUTION)] || [];
-    console.log(`Coverage: bbox=${JSON.stringify(coverageBbox)}, h3_cells=${H3_CELLS}`);
+    allRegions = health.regions || {};
+    const defaultRegion = Object.keys(allRegions)[0] || health.coverage.region;
+    activeRegion = defaultRegion;
+    coverageBbox = allRegions[defaultRegion] ? allRegions[defaultRegion].bbox : health.coverage.bbox;
+    H3_CELLS = (allRegions[defaultRegion] ? allRegions[defaultRegion].h3_cells : health.coverage.h3_cells)[String(RESOLUTION)] || [];
+    updateAdvisories((allRegions[defaultRegion] || health.coverage).advisories || []);
+
+    // Build region switcher buttons
+    const switcher = document.getElementById('region-switcher');
+    Object.keys(allRegions).forEach(name => {
+      const btn = document.createElement('button');
+      btn.className = 'region-btn' + (name === defaultRegion ? ' active' : '');
+      btn.dataset.region = name;
+      btn.textContent = REGION_DISPLAY[name] || name;
+      btn.onclick = () => switchRegion(name);
+      switcher.appendChild(btn);
+    });
+    document.getElementById('region-subtitle').textContent = (REGION_DISPLAY[defaultRegion] || defaultRegion) + ' — Live';
   } catch (e) {
     console.error('Failed to fetch coverage from /health, using defaults', e);
-    coverageBbox = { min_lat: 23.5, max_lat: 30.5, min_lng: 47.5, max_lng: 59.5 };
+    coverageBbox = { min_lat: 37.25, max_lat: 38.2, min_lng: -122.78, max_lng: -121.8 };
     H3_CELLS = [];
   }
 
@@ -648,7 +771,7 @@ map.on('load', async () => {
 
   // Draw coverage bounding box
   const b = coverageBbox;
-  const bboxCoords = [[b.min_lng, b.min_lat], [b.max_lng, b.min_lat], [b.max_lng, b.max_lat], [b.min_lng, b.max_lat], [b.min_lng, b.min_lat]];
+  const bboxCoords = b ? [[b.min_lng, b.min_lat], [b.max_lng, b.min_lat], [b.max_lng, b.max_lat], [b.min_lng, b.max_lat], [b.min_lng, b.min_lat]] : [];
   map.addSource('coverage-bbox', {
     type: 'geojson',
     data: { type: 'Feature', geometry: { type: 'LineString', coordinates: bboxCoords }, properties: {} },
@@ -684,6 +807,7 @@ map.on('load', async () => {
   // Separate intervals
   setInterval(async () => { updateVessels(await fetchVessels()); }, VESSEL_REFRESH_MS);
   setInterval(async () => { updateAircraft(await fetchAircraft()); }, AIRCRAFT_REFRESH_MS);
+  setInterval(refreshAdvisories, 300000); // 5 minutes
 });
 </script>
 

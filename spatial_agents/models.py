@@ -10,6 +10,8 @@ Version History:
     0.1.0  2026-03-28  Initial model definitions
     0.2.0  2026-04-02  Added flight_phase field to AircraftRecord and
                        classify_flight_phase() function
+    0.3.0  2026-04-24  Added regions dict to HealthResponse for
+                       multi-region support — Claude Opus 4.6
 """
 
 from __future__ import annotations
@@ -374,6 +376,9 @@ class CoverageBbox(BaseModel):
 
 class CoverageResponse(BaseModel):
     """Data collection coverage area — actual bounds and H3 cell index."""
+    region: str = Field(
+        description="Active region name (e.g. san_francisco, persian_gulf)",
+    )
     bbox: CoverageBbox = Field(
         description="Rectangular region where AIS and ADS-B data is actively collected. "
                     "Use for map fitting and coverage display.",
@@ -383,6 +388,11 @@ class CoverageResponse(BaseModel):
                     "At coarse resolutions cells extend beyond the bbox — "
                     "use bbox for display bounds, cells for API queries. "
                     "Format: {resolution: [cell_ids]}",
+    )
+    advisories: list[str] = Field(
+        default_factory=list,
+        description="Data quality advisories for the active region. "
+                    "Display these to users when non-empty.",
     )
 
 
@@ -394,7 +404,11 @@ class HealthResponse(BaseModel):
     port: int = Field(description="Server port")
     feeds: list[FeedStatus] = Field(description="Per-feed health status")
     config: HealthConfigResponse = Field(description="Active configuration summary")
-    coverage: CoverageResponse = Field(description="Active data collection area")
+    coverage: CoverageResponse = Field(description="Active data collection area (first region, backward compat)")
+    regions: dict[str, CoverageResponse] = Field(
+        default_factory=dict,
+        description="Per-region coverage info keyed by region name",
+    )
 
 
 class FeedHealthResponse(BaseModel):

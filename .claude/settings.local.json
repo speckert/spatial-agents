@@ -11,7 +11,10 @@
       "Bash(curl -s http://localhost:8012/api/vessels)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'bbox endpoint: {d[\\\\\"count\\\\\"]} vessels'\\)\")",
       "Bash(curl -s http://localhost:8012/api/aircraft)",
-      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'bbox endpoint: {d[\\\\\"count\\\\\"]} aircraft'\\)\")"
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'bbox endpoint: {d[\\\\\"count\\\\\"]} aircraft'\\)\")",
+      "Read(//private/var/log/apache2/**)",
+      "Bash(curl -s http://localhost:8012/health)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d['coverage']['advisories'], indent=2\\)\\); print\\('region:', d['coverage']['region']\\)\")"
     ]
   }
 }

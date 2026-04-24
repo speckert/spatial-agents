@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from spatial_agents.config import config
 from spatial_agents.serving.routes_api import router as api_router
 from spatial_agents.serving.routes_health import router as health_router
+from spatial_agents.serving.routes_stats import router as stats_router
 from spatial_agents.serving.routes_tiles import router as tiles_router
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
     app.include_router(api_router, prefix="/api", tags=["api"])
     app.include_router(tiles_router, prefix="/api/tiles", tags=["tiles"])
     app.include_router(health_router, tags=["health"])
+    app.include_router(stats_router, tags=["stats"])
 
     @app.on_event("startup")
     async def startup() -> None:

@@ -11,6 +11,8 @@ Version History:
                        AIS+ADS-B bounding box, poll interval to 45s
     0.4.0  2026-04-09  Centralized REGION bbox with named presets
                        (san_francisco, persian_gulf) — single line to switch
+    0.5.0  2026-04-24  ACTIVE_REGIONS list for simultaneous multi-region
+                       ingest (SF + Persian Gulf) — Claude Opus 4.6
 """
 
 from __future__ import annotations
@@ -36,7 +38,20 @@ REGIONS: dict[str, tuple[float, float, float, float]] = {
     "san_francisco": (37.25, 38.2, -122.78, -121.8),
     "persian_gulf":  (23.5, 30.5, 47.5, 59.5),
 }
-REGION = REGIONS["persian_gulf"]
+ACTIVE_REGIONS: list[str] = ["san_francisco", "persian_gulf"]
+REGION_NAME = ACTIVE_REGIONS[0]  # default / backward compat
+REGION = REGIONS[REGION_NAME]
+
+# Per-region advisories — shown to clients via /health coverage response
+REGION_ADVISORIES: dict[str, list[str]] = {
+    "persian_gulf": [
+        "AIS data in the Strait of Hormuz is subject to GPS jamming, "
+        "spoofing, and electronic warfare. Vessel positions may be "
+        "inaccurate, delayed, or missing entirely.",
+        "AISStream terrestrial receiver coverage in the Persian Gulf "
+        "is sparse. Expect intermittent vessel data.",
+    ],
+}
 
 
 class FeedConfig(BaseModel):

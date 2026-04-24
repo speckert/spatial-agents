@@ -15,6 +15,8 @@ Version History:
                        handles go-arounds and missed approaches
     0.5.0  2026-04-09  Bbox driven by centralized REGION in config.py,
                        periodic feed status logger (60s) with AIS flow warnings
+    0.6.0  2026-04-24  Multi-region ADS-B polling (alternating regions),
+                       removed dead near-edge code — Claude Opus 4.6
 """
 
 from __future__ import annotations
@@ -26,8 +28,8 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Callable
 
-from spatial_agents.config import REGION, config
-from spatial_agents.ingest.adsb_parser import ADSBParser, REGION_BBOX
+from spatial_agents.config import ACTIVE_REGIONS, REGIONS, config
+from spatial_agents.ingest.adsb_parser import ADSBParser
 from spatial_agents.ingest.ais_parser import AISParser
 from spatial_agents.ingest.aisstream_client import AISStreamClient
 from spatial_agents.models import AircraftRecord, FeedStatus, VesselRecord
@@ -278,13 +280,19 @@ class FeedManager:
     # --- ADS-B Polling Loop ---
 
     async def _adsb_poll_loop(self) -> None:
-        """Periodically fetch ADS-B state vectors."""
+        """Periodically fetch ADS-B state vectors, alternating active regions."""
         interval = config.feeds.adsb_poll_interval_sec
-        logger.info("ADS-B poll loop started — interval: %ds", interval)
+        region_bboxes = [(name, REGIONS[name]) for name in ACTIVE_REGIONS]
+        logger.info(
+            "ADS-B poll loop started — interval: %ds, regions: %s",
+            interval, [r[0] for r in region_bboxes],
+        )
+        idx = 0
 
         while self._running:
             try:
-                records = await self._adsb_parser.fetch_region(REGION_BBOX)
+                region_name, bbox = region_bboxes[idx % len(region_bboxes)]
+                records = await self._adsb_parser.fetch_region(bbox)
                 now = datetime.now(timezone.utc)
                 self._adsb_last_msg = now
                 self._adsb_error = None
@@ -304,7 +312,8 @@ class FeedManager:
                     for cb in self._aircraft_callbacks:
                         cb(record)
 
-                logger.info("ADS-B poll: %d aircraft", len(records))
+                logger.info("ADS-B poll [%s]: %d aircraft", region_name, len(records))
+                idx += 1
 
                 # Evict aircraft not seen in the last 10 minutes
                 cutoff = now - timedelta(minutes=10)
@@ -329,45 +338,22 @@ class FeedManager:
 
     # --- Vessel Cleanup Loop ---
 
-    # Bounding box for "near edge" detection (matching AIS/ADS-B bbox)
-    _BBOX_LAT_MIN, _BBOX_LAT_MAX = REGION[0], REGION[1]
-    _BBOX_LNG_MIN, _BBOX_LNG_MAX = REGION[2], REGION[3]
-    _EDGE_MARGIN = 0.05  # ~5.5 km — "near edge" threshold
-
-    def _is_near_edge(self, lat: float, lng: float) -> bool:
-        """Check if a position is within the edge margin of the bounding box."""
-        return (
-            lat < self._BBOX_LAT_MIN + self._EDGE_MARGIN
-            or lat > self._BBOX_LAT_MAX - self._EDGE_MARGIN
-            or lng < self._BBOX_LNG_MIN + self._EDGE_MARGIN
-            or lng > self._BBOX_LNG_MAX - self._EDGE_MARGIN
-        )
-
     async def _vessel_cleanup_loop(self) -> None:
-        """Periodically evict vessels not seen in over 8 hours."""
+        """Periodically evict vessels not seen in 8+ hours."""
         while self._running:
             try:
                 await asyncio.sleep(300)  # Run every 5 minutes
                 now = datetime.now(timezone.utc)
                 cutoff = now - timedelta(hours=8)
-                stale = []
-                near_edge_count = 0
-                for mmsi, rec in self._vessel_latest.items():
-                    if rec.position.timestamp < cutoff:
-                        near_edge = self._is_near_edge(
-                            rec.position.lat, rec.position.lng,
-                        )
-                        stale.append(mmsi)
-                        if near_edge:
-                            near_edge_count += 1
-                for mmsi in stale:
+                evicted = [
+                    mmsi for mmsi, rec in self._vessel_latest.items()
+                    if rec.position.timestamp < cutoff
+                ]
+                for mmsi in evicted:
                     del self._vessel_latest[mmsi]
                     self._vessel_tracks.pop(mmsi, None)
-                if stale:
-                    logger.info(
-                        "Evicted %d stale vessels (>8 hr), %d near edge",
-                        len(stale), near_edge_count,
-                    )
+                if evicted:
+                    logger.info("Vessel cleanup: evicted %d stale (>8 hr)", len(evicted))
             except asyncio.CancelledError:
                 break
             except Exception as exc:

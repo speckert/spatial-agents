@@ -63,6 +63,7 @@ async def run_pipeline(config: SpatialAgentsConfig) -> None:
     from spatial_agents.spatial.tile_builder import TileBuilder
     from spatial_agents.serving.routes_api import set_feed_manager as set_api_feeds
     from spatial_agents.serving.routes_health import set_feed_manager as set_health_feeds
+    from spatial_agents.serving.routes_stats import set_feed_manager as set_stats_feeds
 
     # Initialize components
     feed_manager = FeedManager()
@@ -71,6 +72,7 @@ async def run_pipeline(config: SpatialAgentsConfig) -> None:
     # Wire up feed manager to API routes
     set_api_feeds(feed_manager)
     set_health_feeds(feed_manager)
+    set_stats_feeds(feed_manager)
 
     # Register tile-building callback on new records
     def on_new_data_batch() -> None:

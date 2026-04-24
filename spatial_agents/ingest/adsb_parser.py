@@ -67,7 +67,7 @@ GLOBAL_REGIONS: list[tuple[str, tuple[float, float, float, float]]] = [
     ("africa", (-40.0, 38.0, -20.0, 55.0)),
 ]
 
-# Active region bbox: (min_lat, max_lat, min_lng, max_lng)
+# Active region bbox: (min_lat, max_lat, min_lng, max_lng) — kept for standalone usage
 REGION_BBOX = REGION
 
 
