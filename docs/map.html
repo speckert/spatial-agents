@@ -1,4 +1,17 @@
 <!DOCTYPE html>
+<!--
+  Live Map — Spatial Agents
+
+  Version History:
+    0.1.0  2026-03-28  Initial MapLibre map with vessel + aircraft layers
+    0.2.0  2026-04-09  Centralized coverage bbox from /health
+    0.3.0  2026-04-24  Multi-region switcher (SF + Boston) + Other button
+                       redirecting to MarineTraffic — Claude Opus 4.6
+    0.4.0  2026-04-25  Coverage rendered as the 7-cell H3 region tile
+                       (primary cell solid, six buffer cells dashed) instead
+                       of a bbox rectangle. Per-region counts filter by
+                       res-4 cell membership rather than bbox — Claude 4.7
+-->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -248,6 +261,7 @@ const AIRCRAFT_REFRESH_MS = 22000;
 let coverageBbox = null; // set from /health API
 let allRegions = {};     // from /health .regions
 let activeRegion = null; // current region name
+let activeCellSet = new Set(); // res-4 H3 cells (primary + buffer) for active region
 
 const REGION_DISPLAY = {
   san_francisco: 'San Francisco',
@@ -437,6 +451,7 @@ function vesselToFeature(v) {
     },
     track: v.track || [],
     color: color,
+    h3_cells: v.h3_cells || null,
   };
 }
 
@@ -461,32 +476,55 @@ function aircraftToFeature(a) {
     },
     track: a.track || [],
     color: color,
+    h3_cells: a.h3_cells || null,
   };
 }
 
-function inActiveBbox(pos) {
-  if (!coverageBbox) return true;
-  return pos.lat >= coverageBbox.min_lat && pos.lat <= coverageBbox.max_lat
-      && pos.lng >= coverageBbox.min_lng && pos.lng <= coverageBbox.max_lng;
+function entityRes4Cell(e) {
+  // Each entity carries h3_cells: { "4": "8428...", ... } populated by
+  // vesselToFeature / aircraftToFeature.
+  const cells = e && e.h3_cells;
+  if (!cells) return null;
+  return cells['4'] || cells[4] || null;
+}
+
+function countInActiveCells(entities) {
+  if (!entities) return 0;
+  if (!activeCellSet || activeCellSet.size === 0) {
+    // Fallback to bbox membership while cells are not yet loaded
+    const b = coverageBbox;
+    if (!b) return entities.length;
+    let n = 0;
+    for (const e of entities) {
+      const [lng, lat] = e.feature.geometry.coordinates;
+      if (lat >= b.min_lat && lat <= b.max_lat && lng >= b.min_lng && lng <= b.max_lng) n++;
+    }
+    return n;
+  }
+  let n = 0;
+  for (const e of entities) {
+    const cell = entityRes4Cell(e);
+    if (cell && activeCellSet.has(cell)) n++;
+  }
+  return n;
+}
+
+function updateCounts() {
+  document.getElementById('vessel-count').textContent = countInActiveCells(lastVesselEntities);
+  document.getElementById('aircraft-count').textContent = countInActiveCells(lastAircraftEntities);
 }
 
 async function fetchVessels() {
   try {
     const data = await fetch(`${API}/api/vessels`).then(r => r.json());
-    const filtered = data.vessels.filter(v => inActiveBbox(v.position));
-    const entities = filtered.map(v => vesselToFeature(v));
-    document.getElementById('vessel-count').textContent = entities.length;
-    return entities;
+    return data.vessels.map(v => vesselToFeature(v));
   } catch (e) { console.error('Vessel fetch error:', e); return null; }
 }
 
 async function fetchAircraft() {
   try {
     const data = await fetch(`${API}/api/aircraft`).then(r => r.json());
-    const filtered = data.aircraft.filter(a => inActiveBbox(a.position));
-    const entities = filtered.map(a => aircraftToFeature(a));
-    document.getElementById('aircraft-count').textContent = entities.length;
-    return entities;
+    return data.aircraft.map(a => aircraftToFeature(a));
   } catch (e) { console.error('Aircraft fetch error:', e); return null; }
 }
 
@@ -547,6 +585,7 @@ function updateVessels(entities) {
   lastVesselEntities = entities;
   setSourceData('vessels', { type: 'FeatureCollection', features: entities.map(e => e.feature) });
   setSourceData('vessel-trails', buildTrailFeatures(entities, e => e.color));
+  updateCounts();
 }
 
 function updateAircraft(entities) {
@@ -554,6 +593,7 @@ function updateAircraft(entities) {
   lastAircraftEntities = entities;
   setSourceData('aircraft', { type: 'FeatureCollection', features: entities.map(e => e.feature) });
   setSourceData('aircraft-trails', buildTrailFeatures(entities, e => e.color));
+  updateCounts();
 }
 
 function initLayers() {
@@ -703,22 +743,63 @@ async function refreshAdvisories() {
   } catch (e) { console.error('Advisory refresh error:', e); }
 }
 
-function updateCoverageBbox() {
-  const b = coverageBbox;
-  if (!b) return;
-  const coords = [[b.min_lng, b.min_lat], [b.max_lng, b.min_lat], [b.max_lng, b.max_lat], [b.min_lng, b.max_lat], [b.min_lng, b.min_lat]];
-  const src = map.getSource('coverage-bbox');
-  if (src) {
-    src.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} });
+// Build a FeatureCollection of res-4 H3 cells for ALL active regions.
+// One feature per cell, properties carry { region, kind } where
+// kind ∈ {primary, buffer}. The active region is highlighted via paint
+// expressions that key on the `region` property.
+function buildCoverageFeatures() {
+  const feats = [];
+  for (const [name, region] of Object.entries(allRegions || {})) {
+    const polys = (region && region.geometry && region.geometry.coordinates) || [];
+    polys.forEach((poly, idx) => {
+      feats.push({
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: poly },
+        properties: {
+          region: name,
+          kind: idx === 0 ? 'primary' : 'buffer',
+        },
+      });
+    });
+  }
+  return { type: 'FeatureCollection', features: feats };
+}
+
+function updateCoverageCells() {
+  const src = map.getSource('coverage-cells');
+  if (src) src.setData(buildCoverageFeatures());
+  // Restyle layers to spotlight the active region.
+  if (map.getLayer('coverage-cells-fill')) {
+    map.setPaintProperty('coverage-cells-fill', 'fill-opacity', [
+      'case', ['==', ['get', 'region'], activeRegion || ''], 0.10, 0.0,
+    ]);
+  }
+  if (map.getLayer('coverage-cells-line-primary')) {
+    map.setPaintProperty('coverage-cells-line-primary', 'line-opacity', [
+      'case', ['==', ['get', 'region'], activeRegion || ''], 0.85, 0.30,
+    ]);
+  }
+  if (map.getLayer('coverage-cells-line-buffer')) {
+    map.setPaintProperty('coverage-cells-line-buffer', 'line-opacity', [
+      'case', ['==', ['get', 'region'], activeRegion || ''], 0.55, 0.20,
+    ]);
   }
 }
 
-async function switchRegion(name) {
+function activeCellsForRegion(name) {
+  const r = allRegions[name];
+  if (!r) return new Set();
+  const cells = [r.primary_cell, ...(r.buffer_cells || [])].filter(Boolean);
+  return new Set(cells);
+}
+
+function switchRegion(name) {
   if (!allRegions[name]) return;
   activeRegion = name;
   const region = allRegions[name];
   coverageBbox = region.bbox;
   H3_CELLS = region.h3_cells[String(RESOLUTION)] || [];
+  activeCellSet = activeCellsForRegion(name);
 
   // Update UI
   document.getElementById('region-subtitle').textContent = (REGION_DISPLAY[name] || name) + ' — Live';
@@ -726,18 +807,16 @@ async function switchRegion(name) {
     btn.classList.toggle('active', btn.dataset.region === name);
   });
 
-  // Update map
-  updateCoverageBbox();
+  // Navigate the map to this region
+  updateCoverageCells();
   fitToCoverage();
 
-  // Update advisories
+  // Recompute counts for the new active region (data itself is unchanged)
+  updateCounts();
+
+  // Show per-region advisories (vessel/aircraft data already on map from all regions)
   _advisoryDismissed = false;
   updateAdvisories(region.advisories || []);
-
-  // Re-fetch entities filtered to new region
-  const [vessels, aircraft] = await Promise.all([fetchVessels(), fetchAircraft()]);
-  updateVessels(vessels);
-  updateAircraft(aircraft);
 }
 
 map.on('load', async () => {
@@ -750,6 +829,7 @@ map.on('load', async () => {
     activeRegion = defaultRegion;
     coverageBbox = allRegions[defaultRegion] ? allRegions[defaultRegion].bbox : health.coverage.bbox;
     H3_CELLS = (allRegions[defaultRegion] ? allRegions[defaultRegion].h3_cells : health.coverage.h3_cells)[String(RESOLUTION)] || [];
+    activeCellSet = activeCellsForRegion(defaultRegion);
     updateAdvisories((allRegions[defaultRegion] || health.coverage).advisories || []);
 
     // Build region switcher buttons
@@ -779,26 +859,46 @@ map.on('load', async () => {
   // Fit map to coverage area
   fitToCoverage();
 
-  // Draw coverage bounding box
-  const b = coverageBbox;
-  const bboxCoords = b ? [[b.min_lng, b.min_lat], [b.max_lng, b.min_lat], [b.max_lng, b.max_lat], [b.min_lng, b.max_lat], [b.min_lng, b.min_lat]] : [];
-  map.addSource('coverage-bbox', {
+  // Draw coverage as the 7-cell H3 region tile (primary + 6 buffer cells)
+  // for every active region. The active region is highlighted; inactive
+  // regions are drawn dimmer so users can still see the multi-region tile
+  // structure. Filtering by `kind` gives primary cells a solid outline and
+  // buffer cells a dashed outline.
+  map.addSource('coverage-cells', {
     type: 'geojson',
-    data: { type: 'Feature', geometry: { type: 'LineString', coordinates: bboxCoords }, properties: {} },
+    data: buildCoverageFeatures(),
   });
   map.addLayer({
-    id: 'coverage-bbox-line', type: 'line', source: 'coverage-bbox',
-    paint: { 'line-color': '#06b6d4', 'line-width': 1.5, 'line-dasharray': [4, 3], 'line-opacity': 0.45 },
-  });
-  map.addLayer({
-    id: 'coverage-bbox-label', type: 'symbol', source: 'coverage-bbox',
-    layout: {
-      'symbol-placement': 'line', 'text-field': 'Data Coverage',
-      'text-size': 11, 'text-font': ['Open Sans Regular'],
-      'text-offset': [0, -0.8],
+    id: 'coverage-cells-fill', type: 'fill', source: 'coverage-cells',
+    paint: {
+      'fill-color': '#06b6d4',
+      'fill-opacity': [
+        'case', ['==', ['get', 'region'], activeRegion || ''], 0.10, 0.0,
+      ],
     },
-    paint: { 'text-color': '#06b6d4', 'text-opacity': 0.5,
-             'text-halo-color': '#0a0e17', 'text-halo-width': 1 },
+  });
+  map.addLayer({
+    id: 'coverage-cells-line-primary', type: 'line', source: 'coverage-cells',
+    filter: ['==', ['get', 'kind'], 'primary'],
+    paint: {
+      'line-color': '#06b6d4',
+      'line-width': 2,
+      'line-opacity': [
+        'case', ['==', ['get', 'region'], activeRegion || ''], 0.85, 0.30,
+      ],
+    },
+  });
+  map.addLayer({
+    id: 'coverage-cells-line-buffer', type: 'line', source: 'coverage-cells',
+    filter: ['==', ['get', 'kind'], 'buffer'],
+    paint: {
+      'line-color': '#06b6d4',
+      'line-width': 1.2,
+      'line-dasharray': [3, 3],
+      'line-opacity': [
+        'case', ['==', ['get', 'region'], activeRegion || ''], 0.55, 0.20,
+      ],
+    },
   });
 
   // Initialize empty sources so layers can be added

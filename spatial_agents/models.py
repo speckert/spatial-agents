@@ -14,6 +14,9 @@ Version History:
                        multi-region support — Claude Opus 4.6
     0.3.1  2026-04-24  CoverageResponse docstring updated to reference
                        boston instead of persian_gulf — Claude Opus 4
+    0.4.0  2026-04-25  CoverageResponse adds primary_cell, buffer_cells,
+                       and geometry (GeoJSON MultiPolygon of the 7-cell
+                       region tile) — Claude 4.7
 """
 
 from __future__ import annotations
@@ -390,6 +393,20 @@ class CoverageResponse(BaseModel):
                     "At coarse resolutions cells extend beyond the bbox — "
                     "use bbox for display bounds, cells for API queries. "
                     "Format: {resolution: [cell_ids]}",
+    )
+    primary_cell: str = Field(
+        default="",
+        description="Primary res-4 H3 cell anchoring this region (region center).",
+    )
+    buffer_cells: list[str] = Field(
+        default_factory=list,
+        description="Six res-4 H3 neighbor cells surrounding the primary cell. "
+                    "Together with primary_cell they form the 7-cell region tile.",
+    )
+    geometry: dict = Field(
+        default_factory=dict,
+        description="GeoJSON MultiPolygon (one polygon per cell, primary first) "
+                    "covering the 7-cell region tile. Suitable for map rendering.",
     )
     advisories: list[str] = Field(
         default_factory=list,

@@ -15,6 +15,8 @@ Version History:
                        ingest (SF + Persian Gulf) — Claude Opus 4.6
     0.6.0  2026-04-24  Dropped persian_gulf (no free-tier AIS coverage),
                        added boston as second region — Claude Opus 4
+    0.7.0  2026-04-25  Regions defined as one res-4 H3 cell + 6-neighbor
+                       buffer; bbox derived from cell union — Claude 4.7
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from __future__ import annotations
 import os
 from enum import Enum
 
+import h3
 from dotenv import load_dotenv
 load_dotenv()
 from pathlib import Path
@@ -34,13 +37,57 @@ class DeploymentMode(str, Enum):
     CLOUD = "cloud"            # S3 tile storage, cloud-hosted API
 
 
-# Named region presets — switch active region by changing REGION below
-REGIONS: dict[str, tuple[float, float, float, float]] = {
-    # (min_lat, max_lat, min_lng, max_lng)
-    "san_francisco": (37.25, 38.2, -122.78, -121.8),
-    "boston":        (41.9, 42.8, -71.3, -70.3),
+# Region tiling: each region is one res-4 H3 cell (the "primary") plus its
+# six res-4 neighbors as a buffer. Region bbox is derived from the union of
+# the seven cell boundaries; all spatial queries on the server can speak
+# either bbox (legacy) or cell-set (H3-native).
+REGION_RESOLUTION: int = 4
+
+# Anchor lat/lng for each region — the res-4 cell containing this point
+# becomes the region's primary cell.
+REGION_CENTERS: dict[str, tuple[float, float]] = {
+    "san_francisco": (37.78, -122.42),
+    "boston":        (42.35, -71.05),
 }
 ACTIVE_REGIONS: list[str] = ["san_francisco", "boston"]
+
+
+def _compute_region_cells(center: tuple[float, float]) -> tuple[str, list[str]]:
+    """Return (primary_cell, sorted [6 buffer cells]) at REGION_RESOLUTION."""
+    primary = h3.latlng_to_cell(center[0], center[1], REGION_RESOLUTION)
+    ring = h3.grid_disk(primary, 1)
+    buffer_cells = sorted(c for c in ring if c != primary)
+    return primary, buffer_cells
+
+
+def _cells_bbox(cells: list[str]) -> tuple[float, float, float, float]:
+    """Bbox (min_lat, max_lat, min_lng, max_lng) enclosing all cell boundaries."""
+    min_lat, max_lat = 90.0, -90.0
+    min_lng, max_lng = 180.0, -180.0
+    for c in cells:
+        for lat, lng in h3.cell_to_boundary(c):
+            if lat < min_lat: min_lat = lat
+            if lat > max_lat: max_lat = lat
+            if lng < min_lng: min_lng = lng
+            if lng > max_lng: max_lng = lng
+    return (min_lat, max_lat, min_lng, max_lng)
+
+
+# Computed at import: per-region cell sets and derived bboxes
+REGION_CELLS: dict[str, dict[str, object]] = {}
+REGIONS: dict[str, tuple[float, float, float, float]] = {}
+for _name, _center in REGION_CENTERS.items():
+    _primary, _buffer = _compute_region_cells(_center)
+    _all_cells = [_primary] + _buffer
+    _bbox = _cells_bbox(_all_cells)
+    REGION_CELLS[_name] = {
+        "primary": _primary,
+        "buffer": _buffer,
+        "all": _all_cells,  # 7 cells: primary first, then 6 buffer
+        "bbox": _bbox,
+    }
+    REGIONS[_name] = _bbox
+
 REGION_NAME = ACTIVE_REGIONS[0]  # default / backward compat
 REGION = REGIONS[REGION_NAME]
 

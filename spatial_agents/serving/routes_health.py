@@ -7,6 +7,9 @@ Version History:
     0.3.0  2026-04-09  Bbox driven by centralized REGION in config.py
     0.4.0  2026-04-24  Multi-region coverage — per-region bbox, H3 cells,
                        and advisories in /health response — Claude Opus 4.6
+    0.5.0  2026-04-25  Coverage now includes primary_cell, buffer_cells,
+                       and a GeoJSON MultiPolygon geometry derived from
+                       the 7-cell region tile in REGION_CELLS — Claude 4.7
 """
 
 from __future__ import annotations
@@ -18,7 +21,14 @@ from fastapi import APIRouter
 
 import h3
 
-from spatial_agents.config import ACTIVE_REGIONS, REGIONS, REGION_ADVISORIES, REGION_NAME, config
+from spatial_agents.config import (
+    ACTIVE_REGIONS,
+    REGION_ADVISORIES,
+    REGION_CELLS,
+    REGION_NAME,
+    REGIONS,
+    config,
+)
 from spatial_agents.models import (
     CoverageBbox,
     CoverageResponse,
@@ -55,6 +65,28 @@ def _compute_h3_cells(bbox: CoverageBbox) -> dict[int, list[str]]:
 
 _REGION_H3: dict[str, dict[int, list[str]]] = {
     name: _compute_h3_cells(bbox) for name, bbox in _REGION_BBOXES.items()
+}
+
+
+def _cells_to_multipolygon(cells: list[str]) -> dict:
+    """Build a GeoJSON MultiPolygon from H3 cell boundaries.
+
+    Each cell becomes one polygon (single linear ring, closed). Coordinates
+    are GeoJSON order (lng, lat). The primary cell should be passed first.
+    """
+    polygons: list[list[list[list[float]]]] = []
+    for cell in cells:
+        boundary = h3.cell_to_boundary(cell)  # [(lat, lng), ...]
+        ring = [[lng, lat] for lat, lng in boundary]
+        if ring and ring[0] != ring[-1]:
+            ring.append(ring[0])
+        polygons.append([ring])
+    return {"type": "MultiPolygon", "coordinates": polygons}
+
+
+_REGION_GEOMETRY: dict[str, dict] = {
+    name: _cells_to_multipolygon(REGION_CELLS[name]["all"])  # type: ignore[arg-type]
+    for name in ACTIVE_REGIONS
 }
 
 # Backward compat — first active region
@@ -130,6 +162,9 @@ async def health() -> HealthResponse:
             region=name,
             bbox=_REGION_BBOXES[name],
             h3_cells=_REGION_H3[name],
+            primary_cell=str(REGION_CELLS[name]["primary"]),
+            buffer_cells=list(REGION_CELLS[name]["buffer"]),  # type: ignore[arg-type]
+            geometry=_REGION_GEOMETRY[name],
             advisories=_build_advisories(name),
         )
         for name in ACTIVE_REGIONS
