@@ -9,6 +9,11 @@ Version History:
                        generation with full field documentation
     0.4.0  2026-04-09  Added /vessels and /aircraft bbox endpoints (return all
                        entities without H3 cell queries)
+    0.5.0  2026-04-25  Optional ?region=<name> filter on /vessels and
+                       /aircraft. Filters by entity h3_cells[4] membership
+                       against REGION_CELLS. Absent = unfiltered (all
+                       active regions). Canonical pattern for clients that
+                       display one region at a time — Claude 4.7
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ from spatial_agents.causal.dag_builder import DAGBuilder
 from spatial_agents.causal.event_detector import EventDetector
 from spatial_agents.causal.graph_serializer import GraphSerializer
 from spatial_agents.causal.intervention import InterventionEngine
+from spatial_agents.config import REGION_CELLS
 from spatial_agents.intelligence.token_budget import TokenBudgetManager
 from spatial_agents.models import (
     AircraftResponse,
@@ -56,13 +62,46 @@ def set_feed_manager(manager: Any) -> None:
     _feed_manager = manager
 
 
+def _region_cell_set(region: str) -> set[str] | None:
+    """Return the res-4 cell set for a region (primary + 6 buffers).
+
+    Returns None if the region is unknown — callers should treat that as
+    a 400 Bad Request. Returns an empty set if the region exists but
+    somehow has no cells (defensive; shouldn't happen).
+    """
+    cells = REGION_CELLS.get(region)
+    if cells is None:
+        return None
+    primary = cells.get("primary")
+    buffer = cells.get("buffer") or []
+    out: set[str] = set()
+    if primary:
+        out.add(str(primary))
+    for c in buffer:  # type: ignore[union-attr]
+        out.add(str(c))
+    return out
+
+
 @router.get("/vessels", response_model=VesselResponse)
-async def get_all_vessels() -> VesselResponse:
-    """Return all live vessel positions within the coverage area."""
+async def get_all_vessels(
+    region: str | None = Query(
+        default=None,
+        description="Optional region name (e.g. san_francisco, boston) — "
+                    "filters vessels to those in the region's 7-cell H3 tile. "
+                    "Absent = all active regions.",
+    ),
+) -> VesselResponse:
+    """Return all live vessel positions, optionally filtered to one region."""
     if _feed_manager is None:
         raise HTTPException(503, "Feed manager not initialized")
 
     vessels = _feed_manager.get_latest_vessels()
+    if region is not None:
+        cell_set = _region_cell_set(region)
+        if cell_set is None:
+            raise HTTPException(400, f"Unknown region: {region}")
+        vessels = [v for v in vessels if v.h3_cells.get(4) in cell_set]
+
     vessel_list = []
     for v in vessels:
         track = _feed_manager.get_vessel_track(v.mmsi)
@@ -72,8 +111,8 @@ async def get_all_vessels() -> VesselResponse:
             track_points=len(track),
         ))
     return VesselResponse(
-        h3_cell="all",
-        resolution=0,
+        h3_cell=region or "all",
+        resolution=4 if region else 0,
         count=len(vessels),
         vessels=vessel_list,
         timestamp=datetime.now(timezone.utc),
@@ -81,12 +120,25 @@ async def get_all_vessels() -> VesselResponse:
 
 
 @router.get("/aircraft", response_model=AircraftResponse)
-async def get_all_aircraft() -> AircraftResponse:
-    """Return all live aircraft positions within the coverage area."""
+async def get_all_aircraft(
+    region: str | None = Query(
+        default=None,
+        description="Optional region name (e.g. san_francisco, boston) — "
+                    "filters aircraft to those in the region's 7-cell H3 tile. "
+                    "Absent = all active regions.",
+    ),
+) -> AircraftResponse:
+    """Return all live aircraft positions, optionally filtered to one region."""
     if _feed_manager is None:
         raise HTTPException(503, "Feed manager not initialized")
 
     aircraft = _feed_manager.get_latest_aircraft()
+    if region is not None:
+        cell_set = _region_cell_set(region)
+        if cell_set is None:
+            raise HTTPException(400, f"Unknown region: {region}")
+        aircraft = [a for a in aircraft if a.h3_cells.get(4) in cell_set]
+
     aircraft_list = []
     for a in aircraft:
         track = _feed_manager.get_aircraft_track(a.icao24)
@@ -96,8 +148,8 @@ async def get_all_aircraft() -> AircraftResponse:
             track_points=len(track),
         ))
     return AircraftResponse(
-        h3_cell="all",
-        resolution=0,
+        h3_cell=region or "all",
+        resolution=4 if region else 0,
         count=len(aircraft),
         aircraft=aircraft_list,
         timestamp=datetime.now(timezone.utc),

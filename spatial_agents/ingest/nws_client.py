@@ -18,6 +18,10 @@ Version History:
     0.2.0  2026-04-25  Pre-render h3_cells_geometry (GeoJSON MultiPolygon
                        of the compact cell set) so clients can visualize
                        the cover without an h3 dependency — Claude 4.7
+    0.3.0  2026-04-25  Keep all CONUS alerts with geometry (no longer
+                       filter to active regions at ingest); regions[] is
+                       populated per-alert and the request-time endpoint
+                       handles ?region= filtering — Claude 4.7
 """
 
 from __future__ import annotations
@@ -198,8 +202,10 @@ def _cells_to_multipolygon(cells: list[str]) -> dict:
 def _feature_to_alert(feature: dict[str, Any]) -> WeatherAlert | None:
     """Convert a single NWS alert Feature into a WeatherAlert.
 
-    Returns None if the feature has no usable geometry or doesn't intersect
-    any active region.
+    Returns None only if the feature has no usable geometry. Alerts that
+    don't intersect any active region are still returned (with regions=[])
+    so global queries can see them; per-region queries filter at the
+    endpoint level by checking `regions` membership.
     """
     geometry = feature.get("geometry")
     if not geometry:
@@ -207,8 +213,6 @@ def _feature_to_alert(feature: dict[str, Any]) -> WeatherAlert | None:
         return None
 
     regions = _polygon_regions(geometry)
-    if not regions:
-        return None
 
     props = feature.get("properties") or {}
     alert_id = props.get("id") or feature.get("id") or ""
@@ -280,8 +284,9 @@ class NWSClient:
             key=lambda a: (severity_rank.get(a.severity, 99),
                            -(a.expires_at.timestamp() if a.expires_at else 0)),
         )
+        in_regions = sum(1 for a in alerts if a.regions)
         logger.info(
-            "NWS fetch: %d total features, %d intersect active regions",
-            len(features), len(alerts),
+            "NWS fetch: %d total features, %d with geometry, %d intersect active regions",
+            len(features), len(alerts), in_regions,
         )
         return alerts
