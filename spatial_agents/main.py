@@ -64,6 +64,7 @@ async def run_pipeline(config: SpatialAgentsConfig) -> None:
     from spatial_agents.serving.routes_api import set_feed_manager as set_api_feeds
     from spatial_agents.serving.routes_health import set_feed_manager as set_health_feeds
     from spatial_agents.serving.routes_stats import set_feed_manager as set_stats_feeds
+    from spatial_agents.serving.routes_tfr import set_feed_manager as set_tfr_feeds
     from spatial_agents.serving.routes_weather import set_feed_manager as set_weather_feeds
 
     # Initialize components
@@ -75,6 +76,7 @@ async def run_pipeline(config: SpatialAgentsConfig) -> None:
     set_health_feeds(feed_manager)
     set_stats_feeds(feed_manager)
     set_weather_feeds(feed_manager)
+    set_tfr_feeds(feed_manager)
 
     # Register tile-building callback on new records
     def on_new_data_batch() -> None:

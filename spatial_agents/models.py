@@ -27,6 +27,9 @@ Version History:
     0.6.1  2026-04-25  WeatherAlert.h3_cells_geometry — pre-rendered
                        GeoJSON MultiPolygon of the compact cell set for
                        client-side visualization — Claude 4.7
+    0.7.0  2026-04-25  Added TFR and TFRsResponse for FAA Temporary
+                       Flight Restrictions (polygon + mixed-res H3
+                       compact cell set) — Claude 4.7
 """
 
 from __future__ import annotations
@@ -487,6 +490,72 @@ class WeatherAlertsResponse(BaseModel):
     count: int = Field(description="Number of alerts in this response.")
     last_updated: datetime = Field(
         description="Time the underlying NWS feed was last fetched (UTC)."
+    )
+
+
+class TFR(BaseModel):
+    """A single active FAA Temporary Flight Restriction with polygon + H3 cover.
+
+    Source: FAA GeoServer WFS feed of active TFR boundaries. Each TFR
+    represents an airspace restriction (security, hazards, VIP movement,
+    space operations, fires, sporting events, etc.) with a published
+    polygon. Mirrors WeatherAlert in shape so clients can render both
+    layers with the same machinery.
+    """
+    notam_id: str = Field(description="FAA NOTAM identifier, e.g. '6/5779'.")
+    title: str = Field(
+        default="",
+        description="Human-readable description, e.g. "
+                    "'Brownsville, TX, Thursday, January 1, 2026 ...'.",
+    )
+    type: str = Field(
+        default="",
+        description="TFR category — SECURITY, HAZARDS, VIP, SPACE OPERATIONS, "
+                    "SPORTING EVENT, FIRE, etc. (FAA 'LEGAL' field).",
+    )
+    state: str = Field(
+        default="",
+        description="US state code where the TFR is centered, e.g. 'TX'.",
+    )
+    facility: str = Field(
+        default="",
+        description="Issuing ARTCC facility identifier, e.g. 'ZHU' (Houston).",
+    )
+    last_modified: datetime | None = Field(
+        default=None,
+        description="Time the TFR record was last modified (UTC).",
+    )
+    polygon: dict = Field(
+        default_factory=dict,
+        description="GeoJSON Polygon or MultiPolygon as published by FAA. "
+                    "Authoritative geometry for display.",
+    )
+    h3_cells_compact: list[str] = Field(
+        default_factory=list,
+        description="Mixed-resolution H3 compact cell set covering the TFR "
+                    "polygon. Use for spatial queries and DAG joins.",
+    )
+    h3_cells_geometry: dict = Field(
+        default_factory=dict,
+        description="GeoJSON MultiPolygon of the h3_cells_compact set "
+                    "(one polygon per cell). Pre-rendered server-side so "
+                    "clients can visualize the cell approximation without "
+                    "an h3-js dependency.",
+    )
+    regions: list[str] = Field(
+        default_factory=list,
+        description="Active region names this TFR intersects "
+                    "(e.g. ['san_francisco']). Empty if it doesn't "
+                    "intersect any active region.",
+    )
+
+
+class TFRsResponse(BaseModel):
+    """Response for GET /api/tfr."""
+    tfrs: list[TFR] = Field(description="Currently active TFRs.")
+    count: int = Field(description="Number of TFRs in this response.")
+    last_updated: datetime = Field(
+        description="Time the underlying FAA feed was last fetched (UTC)."
     )
 
 

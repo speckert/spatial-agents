@@ -21,6 +21,10 @@ Version History:
                        weather feed surfaced as a third FeedStatus and
                        cached alert list exposed via get_latest_alerts()
                        — Claude 4.7
+    0.8.0  2026-04-25  Added FAA TFR poll loop (15-min cadence),
+                       tfr feed surfaced as a fourth FeedStatus and
+                       cached TFR list exposed via get_latest_tfrs()
+                       — Claude 4.7
 """
 
 from __future__ import annotations
@@ -37,7 +41,8 @@ from spatial_agents.ingest.adsb_parser import ADSBParser
 from spatial_agents.ingest.ais_parser import AISParser
 from spatial_agents.ingest.aisstream_client import AISStreamClient
 from spatial_agents.ingest.nws_client import NWSClient
-from spatial_agents.models import AircraftRecord, FeedStatus, VesselRecord, WeatherAlert
+from spatial_agents.ingest.tfr_client import TFRClient
+from spatial_agents.models import AircraftRecord, FeedStatus, TFR, VesselRecord, WeatherAlert
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +71,13 @@ class FeedManager:
         adsb_parser: ADSBParser | None = None,
         aisstream_client: AISStreamClient | None = None,
         nws_client: NWSClient | None = None,
+        tfr_client: TFRClient | None = None,
     ) -> None:
         self._ais_parser = ais_parser or AISParser()
         self._adsb_parser = adsb_parser or ADSBParser()
         self._aisstream = aisstream_client or AISStreamClient()
         self._nws = nws_client or NWSClient()
+        self._tfr = tfr_client or TFRClient()
 
         # Record buffers — bounded deques to prevent memory growth
         self._vessel_buffer: deque[VesselRecord] = deque(maxlen=50_000)
@@ -101,6 +108,12 @@ class FeedManager:
         self._weather_last_fetch: datetime | None = None
         self._weather_msg_count = 0
         self._weather_error: str | None = None
+
+        # TFR cache + health
+        self._tfrs: list[TFR] = []
+        self._tfr_last_fetch: datetime | None = None
+        self._tfr_msg_count = 0
+        self._tfr_error: str | None = None
 
         # Control
         self._running = False
@@ -225,6 +238,7 @@ class FeedManager:
             asyncio.create_task(self._vessel_cleanup_loop(), name="vessel_cleanup"),
             asyncio.create_task(self._feed_status_loop(), name="feed_status"),
             asyncio.create_task(self._weather_poll_loop(), name="weather_poll"),
+            asyncio.create_task(self._tfr_poll_loop(), name="tfr_poll"),
         ]
         # Start AIS WebSocket if API key is configured
         if config.feeds.ais_api_key:
@@ -277,6 +291,14 @@ class FeedManager:
         """Time of the last successful NWS fetch (UTC)."""
         return self._weather_last_fetch
 
+    def get_latest_tfrs(self) -> list[TFR]:
+        """Return the most recently fetched FAA active TFRs."""
+        return list(self._tfrs)
+
+    def get_tfr_last_fetch(self) -> datetime | None:
+        """Time of the last successful FAA TFR fetch (UTC)."""
+        return self._tfr_last_fetch
+
     def health(self) -> list[FeedStatus]:
         """Return health status for all feeds."""
         uptime = time.monotonic() - self._start_time if self._start_time else 0
@@ -303,6 +325,13 @@ class FeedManager:
                 last_message_at=self._weather_last_fetch,
                 messages_per_minute=self._weather_msg_count / rate_window,
                 error=self._weather_error,
+            ),
+            FeedStatus(
+                name="tfr",
+                connected=self._running and self._tfr_error is None,
+                last_message_at=self._tfr_last_fetch,
+                messages_per_minute=self._tfr_msg_count / rate_window,
+                error=self._tfr_error,
             ),
         ]
 
@@ -445,6 +474,31 @@ class FeedManager:
                 logger.error("NWS poll error: %s", exc)
 
             await asyncio.sleep(self._WEATHER_POLL_INTERVAL_SEC)
+
+    # --- FAA TFR Poll Loop ---
+
+    _TFR_POLL_INTERVAL_SEC = 900  # 15 minutes — TFRs change slowly
+
+    async def _tfr_poll_loop(self) -> None:
+        """Periodically fetch FAA active TFRs (CONUS-wide)."""
+        # Small offset so the TFR fetch doesn't fire at the same instant as
+        # the weather fetch on startup.
+        await asyncio.sleep(8)
+        while self._running:
+            try:
+                tfrs = await self._tfr.fetch_active_tfrs()
+                self._tfrs = tfrs
+                self._tfr_last_fetch = datetime.now(timezone.utc)
+                self._tfr_error = None
+                self._tfr_msg_count += len(tfrs)
+                logger.info("FAA TFR poll: %d active TFRs", len(tfrs))
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                self._tfr_error = str(exc)
+                logger.error("FAA TFR poll error: %s", exc)
+
+            await asyncio.sleep(self._TFR_POLL_INTERVAL_SEC)
 
     # --- AIS WebSocket Loop ---
 

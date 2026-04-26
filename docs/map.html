@@ -18,6 +18,10 @@
                        polygon fill + outline, optional H3 compact cell
                        overlay (legend toggle) showing the mixed-resolution
                        hex approximation. 5-min refresh — Claude 4.7
+    0.7.0  2026-04-25  FAA TFR overlay (active CONUS Temporary Flight
+                       Restrictions). Type-colored polygons (security,
+                       hazards, VIP, space ops, ...) with click-to-inspect
+                       info panel. 15-min refresh — Claude 4.7
 -->
 <html lang="en">
 <head>
@@ -216,7 +220,7 @@
   </div>
   <div class="header-right">
     <div id="region-switcher"></div>
-    <span class="entity-count"><span class="status-dot"></span><strong id="vessel-count">—</strong> vessels, <strong id="aircraft-count">—</strong> aircraft, <strong id="weather-count">0</strong> alerts</span>
+    <span class="entity-count"><span class="status-dot"></span><strong id="vessel-count">—</strong> vessels, <strong id="aircraft-count">—</strong> aircraft, <strong id="weather-count">0</strong> alerts, <strong id="tfr-count">0</strong> TFRs</span>
     <button id="h3-toggle" class="region-btn" title="Show H3 compact cell approximation of weather polygons" style="padding:0.35rem 0.7rem;font-size:0.65rem">H3 cells</button>
     <a href="dag.html" class="nav-link">Causal DAG</a>
     <a href="index.html" class="nav-link">Overview</a>
@@ -248,6 +252,12 @@
     <div class="legend-item"><div class="legend-plane-icon" style="color:#f59e0b">&#x2708;</div>Descending</div>
     <div class="legend-item"><div class="legend-plane-icon" style="color:#f43f5e">&#x2708;</div>Approach</div>
     <div class="legend-item"><div class="legend-plane-icon" style="color:#78716c">&#x2708;</div>On Ground</div>
+    <div class="legend-section">TFRs (FAA)</div>
+    <div class="legend-item"><div style="width:14px;height:8px;background:#a855f7;opacity:0.55;border:1px dashed #a855f7;flex-shrink:0"></div>Security</div>
+    <div class="legend-item"><div style="width:14px;height:8px;background:#ef4444;opacity:0.55;border:1px dashed #ef4444;flex-shrink:0"></div>Hazards</div>
+    <div class="legend-item"><div style="width:14px;height:8px;background:#ec4899;opacity:0.55;border:1px dashed #ec4899;flex-shrink:0"></div>VIP</div>
+    <div class="legend-item"><div style="width:14px;height:8px;background:#0ea5e9;opacity:0.55;border:1px dashed #0ea5e9;flex-shrink:0"></div>Space ops</div>
+    <div class="legend-item"><div style="width:14px;height:8px;background:#14b8a6;opacity:0.55;border:1px dashed #14b8a6;flex-shrink:0"></div>Air shows / sports</div>
     <div class="legend-section">Coverage</div>
     <div class="legend-item"><div style="width:16px;height:2px;border-top:2px dashed #06b6d4;flex-shrink:0"></div>Data Collection</div>
     <div class="trail-toggle" id="trail-toggle" onclick="toggleLongTail()">
@@ -267,6 +277,7 @@ const RESOLUTION = 3;
 const VESSEL_REFRESH_MS = 45000;
 const AIRCRAFT_REFRESH_MS = 22000;
 const WEATHER_REFRESH_MS = 300000;  // 5 min — NWS alerts change slowly
+const TFR_REFRESH_MS = 900000;  // 15 min — FAA TFRs change slowly
 let coverageBbox = null; // set from /health API
 let allRegions = {};     // from /health .regions
 let activeRegion = null; // current region name
@@ -307,6 +318,20 @@ const WEATHER_COLORS = {
 
 let lastWeatherAlerts = [];
 let showH3CellsOverlay = false;  // toggled via legend
+
+// FAA TFR type → fill color. Keyed against the LEGAL field.
+const TFR_COLORS = {
+  'SECURITY':              '#a855f7',  // purple
+  'VIP':                   '#ec4899',  // pink
+  'HAZARDS':               '#ef4444',  // red
+  'SPACE OPERATIONS':      '#0ea5e9',  // sky blue
+  'AIR SHOWS/SPORTS':      '#14b8a6',  // teal
+  'UAS PUBLIC GATHERING':  '#f59e0b',  // amber
+  'SPECIAL':               '#84cc16',  // lime
+  'FIRE':                  '#f97316',  // orange
+};
+const TFR_COLOR_DEFAULT = '#94a3b8';
+let lastTFRs = [];
 
 // Flight phase comes from the server (flight_phase field).
 // Fallback for compatibility if field is missing.
@@ -710,6 +735,63 @@ function showWeatherInfo(props) {
   panel.classList.add('visible');
 }
 
+async function fetchTFRs() {
+  try {
+    const r = await fetch(`${API}/api/tfr`);
+    const d = await r.json();
+    return d.tfrs || [];
+  } catch (e) {
+    console.error('TFR fetch error', e);
+    return null;
+  }
+}
+
+function updateTFRs(tfrs) {
+  if (!tfrs) return;
+  lastTFRs = tfrs;
+
+  const features = tfrs
+    .filter(t => t.polygon && t.polygon.coordinates && t.polygon.coordinates.length)
+    .map(t => ({
+      type: 'Feature',
+      geometry: t.polygon,
+      properties: {
+        notam_id: t.notam_id,
+        type: t.type || '',
+        title: t.title || '',
+        state: t.state || '',
+        facility: t.facility || '',
+        last_modified: t.last_modified || '',
+        regions: (t.regions || []).join(','),
+        color: TFR_COLORS[t.type] || TFR_COLOR_DEFAULT,
+      },
+    }));
+
+  setSourceData('tfr-polygons', { type: 'FeatureCollection', features });
+  document.getElementById('tfr-count').textContent = tfrs.length;
+}
+
+function showTFRInfo(props) {
+  const panel = document.getElementById('info');
+  const nameEl = document.getElementById('info-name');
+  const kindEl = document.getElementById('info-kind');
+  const rowsEl = document.getElementById('info-rows');
+  const mod = props.last_modified ? new Date(props.last_modified).toLocaleString() : 'unknown';
+  nameEl.textContent = `TFR ${props.notam_id || ''}`;
+  nameEl.style.color = props.color || TFR_COLOR_DEFAULT;
+  kindEl.textContent = (props.type || 'TFR') + ' · ' + (props.facility || '') + (props.state ? (' · ' + props.state) : '');
+  rowsEl.innerHTML = `
+    <div style="font-size:0.8rem;color:var(--text-secondary);line-height:1.45;margin-bottom:0.6rem">
+      ${(props.title || '').replace(/[<>]/g, '')}
+    </div>
+    <div style="font-size:0.7rem;color:var(--text-muted)">
+      Last modified: ${mod}<br>
+      Regions: ${props.regions || '—'}
+    </div>
+  `;
+  panel.classList.add('visible');
+}
+
 function setH3OverlayVisibility(visible) {
   showH3CellsOverlay = visible;
   const vis = visible ? 'visible' : 'none';
@@ -1035,6 +1117,9 @@ map.on('load', async () => {
   setSourceData('weather-polygons', empty);
   setSourceData('weather-h3-cells', empty);
 
+  // TFR source — initialized empty; populated by updateTFRs.
+  setSourceData('tfr-polygons', empty);
+
   // Weather layers. Drawn under entity icons but above the basemap.
   // Polygon fill (severity-colored, semi-transparent)
   map.addLayer({
@@ -1067,6 +1152,31 @@ map.on('load', async () => {
     map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
   });
 
+  // TFR layers — type-colored polygon fill + dashed outline.
+  // Drawn under entities, on top of basemap, alongside weather.
+  map.addLayer({
+    id: 'tfr-polygons-fill', type: 'fill', source: 'tfr-polygons',
+    paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.14 },
+  });
+  map.addLayer({
+    id: 'tfr-polygons-outline', type: 'line', source: 'tfr-polygons',
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': 1.5,
+      'line-dasharray': [4, 2],
+      'line-opacity': 0.9,
+    },
+  });
+
+  // Click handler for TFR polygons → info panel
+  map.on('click', 'tfr-polygons-fill', (e) => {
+    if (e.features && e.features[0]) showTFRInfo(e.features[0].properties);
+  });
+  ['tfr-polygons-fill', 'tfr-polygons-outline'].forEach(layer => {
+    map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+  });
+
   // H3-cells overlay toggle button in the header
   const h3Btn = document.getElementById('h3-toggle');
   if (h3Btn) {
@@ -1079,17 +1189,19 @@ map.on('load', async () => {
   initLayers();
 
   // Initial fetch
-  const [vessels, aircraft, alerts] = await Promise.all([
-    fetchVessels(), fetchAircraft(), fetchWeatherAlerts(),
+  const [vessels, aircraft, alerts, tfrs] = await Promise.all([
+    fetchVessels(), fetchAircraft(), fetchWeatherAlerts(), fetchTFRs(),
   ]);
   updateVessels(vessels);
   updateAircraft(aircraft);
   updateWeatherAlerts(alerts);
+  updateTFRs(tfrs);
 
   // Separate intervals
   setInterval(async () => { updateVessels(await fetchVessels()); }, VESSEL_REFRESH_MS);
   setInterval(async () => { updateAircraft(await fetchAircraft()); }, AIRCRAFT_REFRESH_MS);
   setInterval(async () => { updateWeatherAlerts(await fetchWeatherAlerts()); }, WEATHER_REFRESH_MS);
+  setInterval(async () => { updateTFRs(await fetchTFRs()); }, TFR_REFRESH_MS);
   setInterval(refreshAdvisories, 300000); // 5 minutes
 });
 </script>

@@ -14,6 +14,8 @@ Version History:
     0.1.0  2026-03-28  Initial FastAPI application
     0.2.0  2026-04-25  Added /api/weather/alerts route for NWS active
                        alerts (polygon + H3 compact cells) — Claude 4.7
+    0.3.0  2026-04-25  Added /api/tfr route for FAA active TFRs
+                       (polygon + H3 compact cells) — Claude 4.7
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from spatial_agents.config import config
 from spatial_agents.serving.routes_api import router as api_router
 from spatial_agents.serving.routes_health import router as health_router
 from spatial_agents.serving.routes_stats import router as stats_router
+from spatial_agents.serving.routes_tfr import router as tfr_router
 from spatial_agents.serving.routes_tiles import router as tiles_router
 from spatial_agents.serving.routes_weather import router as weather_router
 
@@ -75,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(api_router, prefix="/api", tags=["api"])
     app.include_router(tiles_router, prefix="/api/tiles", tags=["tiles"])
     app.include_router(weather_router, prefix="/api", tags=["weather"])
+    app.include_router(tfr_router, prefix="/api", tags=["tfr"])
     app.include_router(health_router, tags=["health"])
     app.include_router(stats_router, tags=["stats"])
 
