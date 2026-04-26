@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Spatial Tiling — Spatial Agents</title>
+<!--
+  Version History:
+      0.1.0  2026-03-30  Initial spatial tiling page
+      0.2.0  2026-04-25  Multi-region coverage, region tile pattern
+                         (1 primary + 6 buffer cells), H3 hex
+                         visualization recipe, /health endpoint
+                         — Claude 4.7
+-->
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -124,11 +132,38 @@
   computations.
 </p>
 
+<h2>Multi-Region Coverage</h2>
+<p>
+  A <em>region</em> is defined as one res-4 cell (the primary, where the data
+  matters most) plus its six adjacent res-4 neighbors as a buffer ring. The
+  seven-cell tile gives ~70 km of coverage across the region with a clean
+  visual hierarchy: solid outline for the primary, dashed for buffers.
+</p>
+<p>
+  The active set is configured as a list — currently
+  <code>["san_francisco", "chicago"]</code> — and the AIS subscription, ADS-B
+  poll, NWS alert filter, and FAA TFR tagging all derive their geographic
+  filters from this single source. Adding a region is a one-line change.
+</p>
+<div class="info-card">
+  <h3>Visualization Pattern</h3>
+  <p><strong>Render hexes as polygons</strong> using <code>h3_cell_to_boundary</code>,
+     never as marker icons centered on the cell — actual cell shapes distort
+     with latitude.</p>
+  <p><strong>Translucent fill + crisp outline.</strong> Fill at 8–18% opacity
+     conveys "this area is in the set"; the outline at 70–90% opacity carries
+     the hex shape. Solid stroke for primary cells, dashed for buffer cells.</p>
+  <p><strong>Mixed-resolution compact sets stay mixed.</strong> When a polygon
+     (weather alert, TFR) is converted to H3, the result is a minimal cell set
+     at varying resolutions — render each cell at its native resolution.</p>
+</div>
+
 <div class="divider"></div>
 
 <h2>API Access</h2>
 <table>
   <tr><th>Endpoint</th><th>Returns</th></tr>
+  <tr><td><code>/health</code></td><td>Per-region geometry (GeoJSON MultiPolygon), primary cell, buffer cells, H3 sample sets, advisories</td></tr>
   <tr><td><code>/api/tiles/info/{h3_cell}</code></td><td>Cell metadata, center, boundary, neighbors</td></tr>
   <tr><td><code>/api/tiles/bbox</code></td><td>All cells within a bounding box</td></tr>
   <tr><td><code>/api/tiles/position</code></td><td>Cell IDs for a lat/lng at all resolutions</td></tr>
@@ -137,7 +172,7 @@
 </table>
 
 <footer>
-  <a href="index.html">Home</a> &middot; <a href="map.html">Live Map</a> &middot; <a href="dag.html">Causal DAG</a> &middot; <a href="architecture.html">Architecture</a> &middot; SpeckTech Inc.
+  <a href="index.html">Home</a> &middot; <a href="map.html">Live Map</a> &middot; <a href="causal-flow.html">Causal Flow</a> &middot; <a href="architecture.html">Architecture</a> &middot; SpeckTech Inc.
 </footer>
 
 </div>

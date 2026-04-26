@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Causal Flow — Live</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<meta name="theme-color" content="#f5f6f8" />
+<!--
+  causal-flow.html
+  Production port of the design-team handoff (Causal Flow v0.4).
+  Sources live under causal-flow/. Loads React from CDN and transpiles
+  JSX in-browser via @babel/standalone. No build step.
+
+  Embed mode for iOS WKWebView: append ?embed=1 to hide chrome.
+  Deep link: ?region=chicago&node=chicago::e3_vessel_loitering
+
+  Version History:
+      0.1.0  2026-04-25  Initial port from design handoff package
+                         — Claude 4.7
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="causal-flow/styles.css" />
+<style>
+  /* iOS WKWebView safe-area + no-bounce when embedded */
+  html, body { overscroll-behavior: none; }
+  body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  /* Embed mode trims chrome that the native shell already provides */
+  .app[data-embed] .topbar--embed { padding: 8px 12px; min-height: 40px; }
+  .app[data-embed] .statusbar { display: none; }
+  .app[data-embed] .legend { display: none; }
+  .app[data-embed] .main { padding-top: 0; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- React 18.3.1 production builds -->
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+
+<script type="text/babel" src="causal-flow/utils.jsx"></script>
+<script type="text/babel" src="causal-flow/empty-state.jsx"></script>
+<script type="text/babel" src="causal-flow/causal-flow.jsx"></script>
+<script type="text/babel" src="causal-flow/app.jsx"></script>
+</body>
+</html>

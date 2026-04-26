@@ -28,6 +28,19 @@
                        weather/TFR exogenous causes flowing into vessel
                        loitering, ground stops, and density anomalies.
                        60-sec refresh — Claude 4.7
+    0.9.0  2026-04-25  Region labels auto-derived from server names
+                       (snake_case → Title Case) so the map follows any
+                       config.ACTIVE_REGIONS change without code edits
+                       — Claude 4.7
+    0.9.1  2026-04-25  Causal layer poll relaxed 60s → 120s (DAG can't
+                       change faster than its slowest input — weather at
+                       5 min). Skip poll entirely when layer is hidden
+                       — Claude 4.7
+    0.10.0 2026-04-25  Header nav: dag.html link removed (legacy viewer
+                       retired), causal-flow.html promoted in its place.
+                       Active region persisted to localStorage on each
+                       switch so causal-flow.html opens to the same
+                       region — Claude 4.7
 -->
 <html lang="en">
 <head>
@@ -229,7 +242,7 @@
     <span class="entity-count"><span class="status-dot"></span><strong id="vessel-count">—</strong> vessels, <strong id="aircraft-count">—</strong> aircraft, <strong id="weather-count">0</strong> alerts, <strong id="tfr-count">0</strong> TFRs, <strong id="causal-count">0</strong> causal</span>
     <button id="h3-toggle" class="region-btn" title="Show H3 compact cell approximation of weather polygons" style="padding:0.35rem 0.7rem;font-size:0.65rem">H3 cells</button>
     <button id="causal-toggle" class="region-btn active" title="Show the causal DAG over weather, TFRs, vessels, and aircraft" style="padding:0.35rem 0.7rem;font-size:0.65rem">Causal</button>
-    <a href="dag.html" class="nav-link">Causal DAG</a>
+    <a href="causal-flow.html" class="nav-link">Causal Flow</a>
     <a href="index.html" class="nav-link">Overview</a>
   </div>
 </div>
@@ -291,16 +304,23 @@ const VESSEL_REFRESH_MS = 45000;
 const AIRCRAFT_REFRESH_MS = 22000;
 const WEATHER_REFRESH_MS = 300000;  // 5 min — NWS alerts change slowly
 const TFR_REFRESH_MS = 900000;  // 15 min — FAA TFRs change slowly
-const CAUSAL_REFRESH_MS = 60000;  // 1 min — causal layer recomputes cheaply
+const CAUSAL_REFRESH_MS = 120000;  // 2 min — DAG can't change faster than its slowest input (weather at 5 min)
 let coverageBbox = null; // set from /health API
 let allRegions = {};     // from /health .regions
 let activeRegion = null; // current region name
 let activeCellSet = new Set(); // res-4 H3 cells (primary + buffer) for active region
 
-const REGION_DISPLAY = {
-  san_francisco: 'San Francisco',
-  boston: 'Boston',
-};
+// Region display labels are derived automatically from the server-supplied
+// region name: "san_francisco" → "San Francisco", "new_york" → "New York".
+// This keeps the map in lock-step with config.ACTIVE_REGIONS — drop a new
+// region into the server config and its button labels itself.
+function regionDisplayName(name) {
+  if (!name) return '';
+  return String(name)
+    .split('_')
+    .map(part => part.length ? part[0].toUpperCase() + part.slice(1) : part)
+    .join(' ');
+}
 
 // External map fallback — opens provider site for regions we don't ingest
 const OTHER_MAP_URL = 'https://www.marinetraffic.com/en/ais/home/centerx:56/centery:26/zoom:8';
@@ -1135,13 +1155,14 @@ function activeCellsForRegion(name) {
 function switchRegion(name) {
   if (!allRegions[name]) return;
   activeRegion = name;
+  try { localStorage.setItem('spatial-agents-region', name); } catch (_) {}
   const region = allRegions[name];
   coverageBbox = bboxFromGeometry(region.geometry);
   H3_CELLS = region.h3_cells[String(RESOLUTION)] || [];
   activeCellSet = activeCellsForRegion(name);
 
   // Update UI
-  document.getElementById('region-subtitle').textContent = (REGION_DISPLAY[name] || name) + ' — Live';
+  document.getElementById('region-subtitle').textContent = regionDisplayName(name) + ' — Live';
   document.querySelectorAll('.region-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.region === name);
   });
@@ -1164,7 +1185,11 @@ map.on('load', async () => {
     const healthRes = await fetch(`${API}/health`);
     const health = await healthRes.json();
     allRegions = health.regions || {};
-    const defaultRegion = Object.keys(allRegions)[0] || health.coverage.region;
+    let stored = null;
+    try { stored = localStorage.getItem('spatial-agents-region'); } catch (_) {}
+    const defaultRegion = (stored && allRegions[stored])
+      ? stored
+      : (Object.keys(allRegions)[0] || health.coverage.region);
     activeRegion = defaultRegion;
     const defaultRegionData = allRegions[defaultRegion] || health.coverage;
     coverageBbox = bboxFromGeometry(defaultRegionData.geometry);
@@ -1178,7 +1203,7 @@ map.on('load', async () => {
       const btn = document.createElement('button');
       btn.className = 'region-btn' + (name === defaultRegion ? ' active' : '');
       btn.dataset.region = name;
-      btn.textContent = REGION_DISPLAY[name] || name;
+      btn.textContent = regionDisplayName(name);
       btn.onclick = () => switchRegion(name);
       switcher.appendChild(btn);
     });
@@ -1189,7 +1214,7 @@ map.on('load', async () => {
     otherBtn.textContent = 'Other';
     otherBtn.onclick = () => { window.open(OTHER_MAP_URL, '_blank', 'noopener'); };
     switcher.appendChild(otherBtn);
-    document.getElementById('region-subtitle').textContent = (REGION_DISPLAY[defaultRegion] || defaultRegion) + ' — Live';
+    document.getElementById('region-subtitle').textContent = regionDisplayName(defaultRegion) + ' — Live';
   } catch (e) {
     console.error('Failed to fetch coverage from /health, using defaults', e);
     coverageBbox = { min_lat: 37.25, max_lat: 38.2, min_lng: -122.78, max_lng: -121.8 };
@@ -1397,7 +1422,11 @@ map.on('load', async () => {
   setInterval(async () => { updateAircraft(await fetchAircraft()); }, AIRCRAFT_REFRESH_MS);
   setInterval(async () => { updateWeatherAlerts(await fetchWeatherAlerts()); }, WEATHER_REFRESH_MS);
   setInterval(async () => { updateTFRs(await fetchTFRs()); }, TFR_REFRESH_MS);
-  setInterval(async () => { updateCausalLayer(await fetchCausalLayer()); }, CAUSAL_REFRESH_MS);
+  // Skip the poll when the layer is hidden — saves bandwidth and server compute
+  setInterval(async () => {
+    if (!showCausalLayer) return;
+    updateCausalLayer(await fetchCausalLayer());
+  }, CAUSAL_REFRESH_MS);
   setInterval(refreshAdvisories, 300000); // 5 minutes
 });
 </script>

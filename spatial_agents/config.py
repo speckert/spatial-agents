@@ -17,6 +17,10 @@ Version History:
                        added boston as second region — Claude Opus 4
     0.7.0  2026-04-25  Regions defined as one res-4 H3 cell + 6-neighbor
                        buffer; bbox derived from cell union — Claude 4.7
+    0.8.0  2026-04-25  Replaced boston with chicago to exercise the
+                       causal DAG against live Midwest weather (NWS
+                       alerts on Lake Michigan corridor + ORD/MDW
+                       traffic) — Claude 4.7
 """
 
 from __future__ import annotations
@@ -47,9 +51,9 @@ REGION_RESOLUTION: int = 4
 # becomes the region's primary cell.
 REGION_CENTERS: dict[str, tuple[float, float]] = {
     "san_francisco": (37.78, -122.42),
-    "boston":        (42.35, -71.05),
+    "chicago":       (41.88, -87.63),
 }
-ACTIVE_REGIONS: list[str] = ["san_francisco", "boston"]
+ACTIVE_REGIONS: list[str] = ["san_francisco", "chicago"]
 
 
 def _compute_region_cells(center: tuple[float, float]) -> tuple[str, list[str]]:

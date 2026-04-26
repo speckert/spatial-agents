@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Causal Reasoning — Spatial Agents</title>
+<!--
+  Version History:
+      0.1.0  2026-03-30  Initial causal reasoning page
+      0.2.0  2026-04-25  Live NWS weather alerts and FAA TFRs as
+                         exogenous roots; /api/causal/layer endpoint;
+                         updated event-type table — Claude 4.7
+-->
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -100,25 +107,43 @@
 
 <h2>Step 1: Event Detection</h2>
 <p>
-  Behavioral patterns are detected from live position data. Each detected event
-  carries a confidence score, the entities involved, the H3 cell where it
-  occurred, and supporting metrics.
+  Two kinds of events feed the DAG. <em>Exogenous roots</em> are observable
+  external conditions ingested directly from authoritative public feeds —
+  these have no causes within the model. <em>Endogenous events</em> are
+  patterns detected from live position data. Each event carries a confidence
+  score, the entities involved, the H3 cell where it occurred, and supporting
+  metrics.
 </p>
 <table>
-  <tr><th>Event Type</th><th>Domain</th><th>Detection Logic</th></tr>
-  <tr><td>Vessel Loitering</td><td>Maritime</td><td>Speed &lt; 2.0 knots across multiple reports</td></tr>
+  <tr><th>Event Type</th><th>Domain</th><th>Source / Detection Logic</th></tr>
+  <tr><td>Weather Alert</td><td>Weather</td><td><em>Exogenous</em> — NWS active alerts (Severe / Extreme), one node per alert polygon</td></tr>
+  <tr><td>TFR Active</td><td>Airspace</td><td><em>Exogenous</em> — FAA Temporary Flight Restrictions, one node per active TFR</td></tr>
+  <tr><td>Vessel Loitering</td><td>Maritime</td><td>Speed &lt; 2.0 knots across multiple AIS reports in the rolling window</td></tr>
   <tr><td>Dark Vessel Gap</td><td>Maritime</td><td>&gt; 15 minutes of silence in track history</td></tr>
-  <tr><td>Density Anomaly</td><td>Both</td><td>Z-score &ge; 2.0 vs. historical baseline</td></tr>
-  <tr><td>Ground Stop</td><td>Aviation</td><td>&gt; 70% of aircraft on ground (min 5)</td></tr>
+  <tr><td>Density Anomaly</td><td>Maritime / Aviation</td><td>Z-score &ge; 2.0 vs. historical baseline</td></tr>
+  <tr><td>Ground Stop Indicator</td><td>Aviation</td><td>&gt; 70% of aircraft on ground (min 5)</td></tr>
 </table>
 
 <h2>Step 2: DAG Construction</h2>
 <p>
   Detected events become nodes in a directed acyclic graph. Edges are
   discovered by matching event pairs against a domain knowledge rule base that
-  encodes known causal relationships — for example, "adverse weather causes
-  vessel loitering."
+  encodes known causal relationships — for example, "severe weather drives
+  vessels to anchor or reduce speed."
 </p>
+<p>
+  The rule base currently encodes ~15 cause→effect relationships. Active live
+  examples (San Francisco + Chicago, sample observed):
+</p>
+<table>
+  <tr><th>Cause (root)</th><th>Effect</th><th>Mechanism</th></tr>
+  <tr><td>weather_alert</td><td>vessel_loitering</td><td>Severe weather drives vessels to anchor or reduce speed</td></tr>
+  <tr><td>weather_alert</td><td>ground_stop_indicator</td><td>Severe weather triggers airport ground stops</td></tr>
+  <tr><td>weather_alert</td><td>density_anomaly_high</td><td>Weather-driven delays back up vessels and aircraft into dense clusters</td></tr>
+  <tr><td>tfr_active</td><td>density_anomaly_low</td><td>Active TFR voids the affected airspace of normal traffic</td></tr>
+  <tr><td>tfr_active</td><td>ground_stop_indicator</td><td>Active TFR forces aircraft to delay, hold, or reroute</td></tr>
+  <tr><td>tfr_active</td><td>density_anomaly_high</td><td>Aircraft rerouting around an active TFR concentrates traffic in adjacent corridors</td></tr>
+</table>
 <div class="info-card">
   <h3>Edge Strength Calculation</h3>
   <p><code>strength = base_strength &times; temporal_decay &times; confidence_factor</code></p>
@@ -159,12 +184,21 @@
 <h2>API Access</h2>
 <table>
   <tr><th>Endpoint</th><th>Returns</th></tr>
-  <tr><td><code>/api/causal/{h3_cell}</code></td><td>Full causal graph with nodes, edges, and interventions</td></tr>
-  <tr><td><code>/api/causal/{h3_cell}?compact=true</code></td><td>Token-optimized compact format</td></tr>
+  <tr><td><code>/api/causal/layer?region={name}</code></td><td>Geographic DAG — nodes carry lat/lng for map rendering, suitable for client overlays. Region optional; omit for all active regions.</td></tr>
+  <tr><td><code>/api/causal/{h3_cell}</code></td><td>Per-cell causal graph with nodes, edges, and counterfactual interventions</td></tr>
+  <tr><td><code>/api/causal/{h3_cell}?compact=true</code></td><td>Token-optimized compact format for FM consumption</td></tr>
 </table>
+<div class="info-card">
+  <h3>Recommended Polling Cadence</h3>
+  <p>The DAG cannot change faster than its slowest input. Weather refreshes
+     server-side every 5 min, TFRs every 15 min, ADS-B every 45s, AIS streams
+     continuously. Polling <code>/api/causal/layer</code> faster than
+     <strong>2 minutes</strong> returns identical data. Skip the poll
+     entirely when the layer is hidden.</p>
+</div>
 
 <footer>
-  <a href="index.html">Home</a> &middot; <a href="map.html">Live Map</a> &middot; <a href="dag.html">Causal DAG</a> &middot; <a href="architecture.html">Architecture</a> &middot; SpeckTech Inc.
+  <a href="index.html">Home</a> &middot; <a href="map.html">Live Map</a> &middot; <a href="causal-flow.html">Causal Flow</a> &middot; <a href="architecture.html">Architecture</a> &middot; SpeckTech Inc.
 </footer>
 
 </div>

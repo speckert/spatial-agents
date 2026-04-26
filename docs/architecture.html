@@ -16,6 +16,11 @@
                          and code block rendering (added white-space: pre)
       0.1.2  2026-03-28  Updated to SpeckTech Inc., removed external company
                          references and NITF lineage note
+      0.2.0  2026-04-25  Added NWS Weather and FAA Airspace as live data
+                         sources, multi-region coverage (SF + Chicago),
+                         updated package tree with aisstream_client,
+                         nws_client, tfr_client, routes_weather,
+                         routes_tfr, routes_stats — Claude 4.7
 -->
 <html lang="en">
 <head>
@@ -613,7 +618,7 @@
     <div class="card">
       <div class="card-icon">🛰</div>
       <h3>Real-Time Geospatial Ingest</h3>
-      <p>AIS vessel tracking, ADS-B aircraft surveillance, and satellite metadata — parsed, validated, and spatially indexed on ingest.</p>
+      <p>AIS vessel tracking, ADS-B aircraft surveillance, NWS severe weather alerts, and FAA airspace restrictions — parsed, validated, and spatially indexed on ingest. Multi-region (currently SF + Chicago).</p>
     </div>
     <div class="card">
       <div class="card-icon">⬡</div>
@@ -712,7 +717,7 @@
       <div class="flow-node ingest">
         <div class="node-label">Ingest</div>
         <div class="node-title">Feed Parsers</div>
-        <div class="node-detail">AIS NMEA · ADS-B</div>
+        <div class="node-detail">AIS · ADS-B · NWS · FAA TFR</div>
       </div>
       <div class="flow-arrow">→</div>
       <div class="flow-node process">
@@ -750,17 +755,22 @@
   <div class="cards-grid" style="margin-top: 2rem;">
     <div class="card">
       <h3>AIS Vessel Tracking</h3>
-      <p>~300K vessels globally. NMEA 0183 sentences decoded to position, heading, speed, MMSI, vessel type, destination. Position reports arrive at variable rates — Class A every 2–10 seconds under way, Class B every 30 seconds.</p>
+      <p>~300K vessels globally. AISStream WebSocket feed delivers position, heading, speed, MMSI, vessel type, destination. Streaming push from source — no client-side polling required for ingestion. Bbox subscription is the union of all active region bboxes.</p>
       <span class="tag python">Python</span>
     </div>
     <div class="card">
       <h3>ADS-B Aircraft Surveillance</h3>
-      <p>~50–100K aircraft globally. Mode S extended squitter messages decoded to position, altitude, velocity, callsign, ICAO 24-bit address. 1090 MHz reception or API-sourced.</p>
+      <p>~50–100K aircraft globally via OpenSky OAuth2. State vectors decoded to position, altitude, velocity, callsign, ICAO 24-bit address, on-ground flag, flight phase. Polled every 45 seconds, round-robin across active regions.</p>
       <span class="tag python">Python</span>
     </div>
     <div class="card">
-      <h3>Satellite Metadata</h3>
-      <p>TLE orbital elements, overpass predictions, sensor specifications. Future integration with imagery catalogs — STAC-compatible metadata indexing.</p>
+      <h3>NWS Severe Weather Alerts</h3>
+      <p>National Weather Service active alerts (CAP / GeoJSON) — flood warnings, severe thunderstorm warnings, tornado warnings. Polled every 5 min, polygon-tagged with the active regions it intersects, becomes an exogenous root in the causal DAG.</p>
+      <span class="tag python">Python</span>
+    </div>
+    <div class="card">
+      <h3>FAA Airspace Restrictions</h3>
+      <p>Active CONUS Temporary Flight Restrictions from the FAA GeoServer WFS feed (TFR:V_TFR_LOC). Categorized by type — security, VIP, hazards, fire, space ops, air shows. Polled every 15 min, becomes an exogenous root in the causal DAG.</p>
       <span class="tag python">Python</span>
     </div>
   </div>
@@ -775,10 +785,13 @@
   <div class="package-tree">
 <span class="dir">spatial_agents/</span>
 ├── <span class="dir">ingest/</span>                     <span class="comment"># Feed parsers and data acquisition</span>
-│   ├── <span class="file">ais_parser.py</span>            <span class="comment"># NMEA 0183 → structured vessel records</span>
-│   ├── <span class="file">adsb_parser.py</span>           <span class="comment"># Mode S → aircraft position/velocity</span>
+│   ├── <span class="file">aisstream_client.py</span>      <span class="comment"># AISStream WebSocket → vessel records (streaming)</span>
+│   ├── <span class="file">ais_parser.py</span>            <span class="comment"># Legacy NMEA 0183 parser (kept for offline use)</span>
+│   ├── <span class="file">adsb_parser.py</span>           <span class="comment"># OpenSky OAuth2 → aircraft state vectors</span>
+│   ├── <span class="file">nws_client.py</span>            <span class="comment"># NWS active alerts (CAP/GeoJSON) → WeatherAlert</span>
+│   ├── <span class="file">tfr_client.py</span>            <span class="comment"># FAA GeoServer WFS → TFR (active CONUS TFRs)</span>
 │   ├── <span class="file">tle_parser.py</span>            <span class="comment"># Two-line elements → orbital state</span>
-│   └── <span class="file">feed_manager.py</span>          <span class="comment"># Connection lifecycle, reconnection, health</span>
+│   └── <span class="file">feed_manager.py</span>          <span class="comment"># Connection lifecycle, reconnection, multi-region poll, health</span>
 │
 ├── <span class="dir">spatial/</span>                     <span class="comment"># Geospatial indexing and tiling</span>
 │   ├── <span class="file">h3_indexer.py</span>            <span class="comment"># Position → H3 cell assignment, multi-res</span>
@@ -793,16 +806,19 @@
 │   └── <span class="file">eval_harness.py</span>          <span class="comment"># Batch prompt evaluation, scoring, regression</span>
 │
 ├── <span class="dir">causal/</span>                      <span class="comment"># Structural causal model construction</span>
-│   ├── <span class="file">event_detector.py</span>        <span class="comment"># Pattern detection across data streams</span>
-│   ├── <span class="file">dag_builder.py</span>           <span class="comment"># Pearl SCM DAG construction from observations</span>
+│   ├── <span class="file">event_detector.py</span>        <span class="comment"># Pattern detection — incl. weather_alert and tfr_active roots</span>
+│   ├── <span class="file">dag_builder.py</span>           <span class="comment"># Pearl SCM DAG construction with domain rule engine</span>
 │   ├── <span class="file">intervention.py</span>          <span class="comment"># do-calculus intervention modeling</span>
 │   └── <span class="file">graph_serializer.py</span>      <span class="comment"># DAG → JSON for Swift client consumption</span>
 │
 ├── <span class="dir">serving/</span>                     <span class="comment"># API and file serving</span>
 │   ├── <span class="file">app.py</span>                   <span class="comment"># FastAPI application — REST + static tiles</span>
 │   ├── <span class="file">routes_tiles.py</span>          <span class="comment"># GET /tiles/h3/{resolution}/{cell_id}.json</span>
-│   ├── <span class="file">routes_api.py</span>            <span class="comment"># GET /api/vessels, /api/aircraft, /api/causal</span>
-│   ├── <span class="file">routes_health.py</span>         <span class="comment"># GET /health — pipeline status, feed freshness</span>
+│   ├── <span class="file">routes_api.py</span>            <span class="comment"># GET /api/vessels, /api/aircraft, /api/causal/layer</span>
+│   ├── <span class="file">routes_weather.py</span>        <span class="comment"># GET /api/weather/alerts — NWS active alerts</span>
+│   ├── <span class="file">routes_tfr.py</span>            <span class="comment"># GET /api/tfr — active FAA Temporary Flight Restrictions</span>
+│   ├── <span class="file">routes_stats.py</span>          <span class="comment"># GET /api/stats — feed throughput, counts, timeseries</span>
+│   ├── <span class="file">routes_health.py</span>         <span class="comment"># GET /health — pipeline status, multi-region geometry</span>
 │   └── <span class="file">file_exporter.py</span>         <span class="comment"># Write payloads to shared filesystem (alt mode)</span>
 │
 ├── <span class="dir">deploy/</span>                      <span class="comment"># Deployment configurations</span>
@@ -810,7 +826,7 @@
 │   ├── <span class="file">cloud_s3.py</span>              <span class="comment"># S3 tile sync, CDN invalidation</span>
 │   └── <span class="file">Dockerfile</span>               <span class="comment"># Cloud container build (ARM64)</span>
 │
-├── <span class="file">config.py</span>                    <span class="comment"># Environment-aware configuration</span>
+├── <span class="file">config.py</span>                    <span class="comment"># ACTIVE_REGIONS list, region tile (1 primary + 6 buffer cells)</span>
 ├── <span class="file">models.py</span>                    <span class="comment"># Pydantic data models (shared with Swift schemas)</span>
 └── <span class="file">main.py</span>                      <span class="comment"># Entry point — start pipeline + server</span>
   </div>
@@ -1042,33 +1058,51 @@ remaining = context_size - inst_tokens - payload_tokens
     <tbody>
       <tr>
         <td class="mono">GET</td>
-        <td class="mono">/tiles/h3/{res}/{cell}.json</td>
-        <td>Static H3 tile — pre-computed vessel/aircraft data</td>
-        <td>GeoJSON</td>
+        <td class="mono">/health</td>
+        <td>Pipeline status — feed freshness, multi-region geometry, advisories</td>
+        <td>HealthResponse</td>
       </tr>
       <tr>
         <td class="mono">GET</td>
-        <td class="mono">/api/vessels/{h3_cell}</td>
-        <td>Live vessel positions within an H3 cell</td>
-        <td>JSON array</td>
+        <td class="mono">/api/vessels?region={name}</td>
+        <td>Live vessel positions, optionally filtered to one region</td>
+        <td>VesselResponse</td>
       </tr>
       <tr>
         <td class="mono">GET</td>
-        <td class="mono">/api/aircraft/{h3_cell}</td>
-        <td>Live aircraft positions within an H3 cell</td>
-        <td>JSON array</td>
+        <td class="mono">/api/aircraft?region={name}</td>
+        <td>Live aircraft state vectors, optionally filtered to one region</td>
+        <td>AircraftResponse</td>
+      </tr>
+      <tr>
+        <td class="mono">GET</td>
+        <td class="mono">/api/weather/alerts?region={name}</td>
+        <td>Active NWS severe weather alerts; omit region for global view</td>
+        <td>WeatherAlertsResponse</td>
+      </tr>
+      <tr>
+        <td class="mono">GET</td>
+        <td class="mono">/api/tfr?region={name}</td>
+        <td>Active FAA Temporary Flight Restrictions</td>
+        <td>TFRsResponse</td>
+      </tr>
+      <tr>
+        <td class="mono">GET</td>
+        <td class="mono">/api/causal/layer?region={name}</td>
+        <td>Geographic causal DAG with lat/lng on each node — for map overlay</td>
+        <td>CausalLayerResponse</td>
+      </tr>
+      <tr>
+        <td class="mono">GET</td>
+        <td class="mono">/api/causal/{h3_cell}</td>
+        <td>Per-cell causal graph with counterfactual interventions (legacy, FM-oriented)</td>
+        <td>CausalGraph</td>
       </tr>
       <tr>
         <td class="mono">GET</td>
         <td class="mono">/api/intelligence/{h3_cell}</td>
         <td>FM-evaluated situation report for a cell</td>
-        <td>Structured JSON</td>
-      </tr>
-      <tr>
-        <td class="mono">GET</td>
-        <td class="mono">/api/causal/{h3_cell}</td>
-        <td>Causal graph for observed events in a cell</td>
-        <td>DAG JSON</td>
+        <td>IntelligenceResponse</td>
       </tr>
       <tr>
         <td class="mono">GET</td>
@@ -1078,9 +1112,9 @@ remaining = context_size - inst_tokens - payload_tokens
       </tr>
       <tr>
         <td class="mono">GET</td>
-        <td class="mono">/health</td>
-        <td>Pipeline status — feed freshness, tile age, errors</td>
-        <td>Status JSON</td>
+        <td class="mono">/tiles/h3/{res}/{cell}.json</td>
+        <td>Static H3 tile — pre-computed vessel/aircraft data</td>
+        <td>GeoJSON</td>
       </tr>
     </tbody>
   </table>

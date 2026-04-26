@@ -8,6 +8,14 @@
       0.1.1  2026-03-29  Fixed architecture link
       0.2.0  2026-03-30  Compact header, feature cards link to detail pages
       0.3.0  2026-03-30  Streamlined — ecosystem diagram, removed redundant sections
+      0.4.0  2026-04-25  Added Weather (NWS) and Airspace (FAA TFRs) as
+                         first-class data sources; multi-region note;
+                         live causal DAG references — Claude 4.7
+      0.4.1  2026-04-25  Added Causal Flow CTA pointing at the new
+                         design-team-handed-off viewer — Claude 4.7
+      0.4.2  2026-04-25  Removed dag.html link (legacy viewer retired);
+                         Causal Flow is the only causal viewer linked
+                         from the site root — Claude 4.7
 -->
 <html lang="en">
 <head>
@@ -192,8 +200,9 @@
     <a href="live-feeds.html" class="card">
       <div class="card-icon">&#x1F6F0;</div>
       <h3>Live Global Feeds</h3>
-      <p>AIS maritime tracking, ADS-B aircraft surveillance, and satellite
-         orbital data — streaming in real time from public sources worldwide.</p>
+      <p>AIS maritime tracking, ADS-B aircraft surveillance, NWS severe
+         weather alerts, and FAA airspace restrictions — streaming in real
+         time from public sources worldwide.</p>
       <div class="card-arrow">Learn more &#8594;</div>
     </a>
     <a href="spatial-tiling.html" class="card">
@@ -213,8 +222,9 @@
     <a href="causal-reasoning.html" class="card">
       <div class="card-icon">&#x1F517;</div>
       <h3>Causal Reasoning</h3>
-      <p>Structural causal models explain why patterns emerge — not just
-         what happened, but the chain of events that led there.</p>
+      <p>Structural causal models explain why patterns emerge — live NWS
+         alerts and FAA airspace restrictions feed the DAG as exogenous
+         roots, linking weather and airspace to vessel and aircraft behavior.</p>
       <div class="card-arrow">Learn more &#8594;</div>
     </a>
     <a href="privacy.html" class="card">
@@ -269,7 +279,7 @@
 <section style="text-align: center;">
   <div class="cta-row">
     <a href="map.html" class="cta primary">Live Map</a>
-    <a href="dag.html" class="cta primary">Causal DAG</a>
+    <a href="causal-flow.html" class="cta primary">Causal Flow</a>
     <a href="architecture.html" class="cta secondary">Architecture</a>
     <a href="https://github.com/speckert/spatial-agents" class="cta secondary">GitHub</a>
   </div>

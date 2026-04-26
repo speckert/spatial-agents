@@ -25,6 +25,14 @@ Version History:
                        tfr feed surfaced as a fourth FeedStatus and
                        cached TFR list exposed via get_latest_tfrs()
                        — Claude 4.7
+    0.9.0  2026-04-25  ADS-B startup warmup — poll each active region
+                       once at 5s spacing before settling into the 45s
+                       alternating cadence, so no region sits empty
+                       for the first 45s after launch — Claude 4.7
+    0.10.0 2026-04-25  get_recent_vessels(within_minutes) accessor over
+                       the rolling buffer, for detectors that need
+                       multiple observations per vessel (loitering,
+                       dark-gap) — Claude 4.7
 """
 
 from __future__ import annotations
@@ -265,6 +273,14 @@ class FeedManager:
         """Return latest known position for each vessel."""
         return list(self._vessel_latest.values())
 
+    def get_recent_vessels(self, within_minutes: int = 10) -> list[VesselRecord]:
+        """Return all vessel observations from the rolling buffer within
+        the time window. Used by detectors that need repeated observations
+        (e.g. loitering, dark gap) rather than just the latest snapshot.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=within_minutes)
+        return [v for v in self._vessel_buffer if v.position.timestamp >= cutoff]
+
     def get_latest_aircraft(self) -> list[AircraftRecord]:
         """Return latest known state for each aircraft."""
         return list(self._aircraft_latest.values())
@@ -338,14 +354,22 @@ class FeedManager:
     # --- ADS-B Polling Loop ---
 
     async def _adsb_poll_loop(self) -> None:
-        """Periodically fetch ADS-B state vectors, alternating active regions."""
+        """Periodically fetch ADS-B state vectors, alternating active regions.
+
+        Startup warmup: poll each active region once at WARMUP_INTERVAL
+        spacing before entering the steady-state alternating cadence.
+        This avoids a cold gap where a region has zero aircraft for up
+        to one full interval after launch.
+        """
         interval = config.feeds.adsb_poll_interval_sec
+        warmup_interval = 5  # seconds between initial per-region polls
         region_bboxes = [(name, REGIONS[name]) for name in ACTIVE_REGIONS]
         logger.info(
-            "ADS-B poll loop started — interval: %ds, regions: %s",
-            interval, [r[0] for r in region_bboxes],
+            "ADS-B poll loop started — interval: %ds, warmup: %ds, regions: %s",
+            interval, warmup_interval, [r[0] for r in region_bboxes],
         )
         idx = 0
+        polled_regions: set[str] = set()
 
         while self._running:
             try:
@@ -371,6 +395,7 @@ class FeedManager:
                         cb(record)
 
                 logger.info("ADS-B poll [%s]: %d aircraft", region_name, len(records))
+                polled_regions.add(region_name)
                 idx += 1
 
                 # Evict aircraft not seen in the last 10 minutes
@@ -392,7 +417,10 @@ class FeedManager:
                 self._adsb_error = str(exc)
                 logger.error("ADS-B poll error: %s", exc)
 
-            await asyncio.sleep(interval)
+            # Warmup: short sleep until every region has been polled once;
+            # then settle into the configured steady-state interval.
+            in_warmup = len(polled_regions) < len(region_bboxes)
+            await asyncio.sleep(warmup_interval if in_warmup else interval)
 
     # --- Vessel Cleanup Loop ---
 

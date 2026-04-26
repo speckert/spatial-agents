@@ -16,6 +16,9 @@ Version History:
                        new detect_weather_events / detect_tfr_events
                        to lift NWS alerts and FAA TFRs into the
                        causal graph as exogenous causes — Claude 4.7
+    0.2.1  2026-04-25  TEMP: relaxed LOITER_MIN_DURATION_MIN 30→3 to
+                       exercise the live causal DAG against Chicago
+                       weather. Restore before production — Claude 4.7
 """
 
 from __future__ import annotations
@@ -136,7 +139,9 @@ class EventDetector:
 
     # Thresholds (configurable)
     LOITER_SPEED_KNOTS = 2.0
-    LOITER_MIN_DURATION_MIN = 30
+    LOITER_MIN_DURATION_MIN = 3  # TEMP: relaxed 30→3 to exercise the
+                                 # causal DAG against live Chicago weather.
+                                 # Restore to 30 before production.
     DARK_GAP_MIN_MINUTES = 15
     ROUTE_DEVIATION_NM = 5.0
     DENSITY_ZSCORE_THRESHOLD = 2.0

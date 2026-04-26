@@ -18,6 +18,10 @@ Version History:
                        DAG over all active feeds (vessels, aircraft,
                        weather alerts, TFRs). Optional ?region= filter
                        follows the canonical pattern — Claude 4.7
+    0.6.1  2026-04-25  /causal/layer pulls vessels from the 15-min
+                       rolling buffer (get_recent_vessels) instead of
+                       the latest-snapshot map, so loitering / dark-gap
+                       detectors have enough observations — Claude 4.7
 """
 
 from __future__ import annotations
@@ -324,7 +328,11 @@ async def get_causal_layer(
 
     all_alerts = _feed_manager.get_latest_alerts()
     all_tfrs = _feed_manager.get_latest_tfrs()
-    all_vessels = _feed_manager.get_latest_vessels()
+    # Causal detection (loitering, dark gap) needs repeated observations
+    # per vessel, not just the latest snapshot. Pull a rolling window from
+    # the buffer instead. Aircraft uses latest — ground-stop is a snapshot
+    # detector, not a temporal one.
+    all_vessels = _feed_manager.get_recent_vessels(within_minutes=15)
     all_aircraft = _feed_manager.get_latest_aircraft()
 
     nodes_out = []
