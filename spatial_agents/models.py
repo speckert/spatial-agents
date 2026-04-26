@@ -30,6 +30,10 @@ Version History:
     0.7.0  2026-04-25  Added TFR and TFRsResponse for FAA Temporary
                        Flight Restrictions (polygon + mixed-res H3
                        compact cell set) — Claude 4.7
+    0.8.0  2026-04-25  Causal DAG enrichment: WEATHER and AIRSPACE
+                       domains, optional lat/lng on CausalNode for
+                       map-layer rendering, CausalLayerResponse for
+                       the /api/causal/layer endpoint — Claude 4.7
 """
 
 from __future__ import annotations
@@ -79,6 +83,8 @@ class DataDomain(str, Enum):
     MARITIME = "maritime"
     AVIATION = "aviation"
     ORBITAL = "orbital"
+    WEATHER = "weather"     # NWS active alerts (causal exogenous source)
+    AIRSPACE = "airspace"   # FAA TFRs / NOTAMs (causal exogenous source)
 
 
 # ---------------------------------------------------------------------------
@@ -254,9 +260,20 @@ class CausalNode(BaseModel):
     id: str
     label: str
     domain: DataDomain
-    event_type: str = Field(description="e.g. vessel_loitering, flight_diversion, weather_event")
+    event_type: str = Field(
+        description="e.g. vessel_loitering, weather_alert, tfr_active, "
+                    "ground_stop_indicator, density_anomaly_high, dark_vessel_gap",
+    )
     observed_value: float | None = None
     timestamp: datetime | None = None
+    lat: float | None = Field(
+        default=None, ge=-90, le=90,
+        description="Latitude where the event was observed (for map-layer rendering).",
+    )
+    lng: float | None = Field(
+        default=None, ge=-180, le=180,
+        description="Longitude where the event was observed (for map-layer rendering).",
+    )
 
 
 class CausalEdge(BaseModel):
@@ -276,6 +293,24 @@ class CausalGraph(BaseModel):
         default_factory=list,
         description="Results of do-calculus intervention queries",
     )
+    generated_at: datetime
+
+
+class CausalLayerResponse(BaseModel):
+    """Response for GET /api/causal/layer — geographically-positioned DAG.
+
+    Causal nodes carry lat/lng so clients can render the DAG as a map
+    overlay alongside vessels, aircraft, weather alerts, and TFRs.
+    Edges connect node IDs and carry estimated causal strength.
+    """
+    region: str | None = Field(
+        default=None,
+        description="Region name if filtered, else None for all active regions.",
+    )
+    nodes: list[CausalNode] = Field(default_factory=list)
+    edges: list[CausalEdge] = Field(default_factory=list)
+    node_count: int = Field(description="Number of nodes in the DAG.")
+    edge_count: int = Field(description="Number of edges in the DAG.")
     generated_at: datetime
 
 

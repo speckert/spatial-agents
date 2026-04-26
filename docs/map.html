@@ -22,6 +22,12 @@
                        Restrictions). Type-colored polygons (security,
                        hazards, VIP, space ops, ...) with click-to-inspect
                        info panel. 15-min refresh — Claude 4.7
+    0.8.0  2026-04-25  Causal DAG layer — nodes (per-domain colored
+                       circles) and directed edges drawn over the map,
+                       fed by /api/causal/layer. Toggle in header. Shows
+                       weather/TFR exogenous causes flowing into vessel
+                       loitering, ground stops, and density anomalies.
+                       60-sec refresh — Claude 4.7
 -->
 <html lang="en">
 <head>
@@ -220,8 +226,9 @@
   </div>
   <div class="header-right">
     <div id="region-switcher"></div>
-    <span class="entity-count"><span class="status-dot"></span><strong id="vessel-count">—</strong> vessels, <strong id="aircraft-count">—</strong> aircraft, <strong id="weather-count">0</strong> alerts, <strong id="tfr-count">0</strong> TFRs</span>
+    <span class="entity-count"><span class="status-dot"></span><strong id="vessel-count">—</strong> vessels, <strong id="aircraft-count">—</strong> aircraft, <strong id="weather-count">0</strong> alerts, <strong id="tfr-count">0</strong> TFRs, <strong id="causal-count">0</strong> causal</span>
     <button id="h3-toggle" class="region-btn" title="Show H3 compact cell approximation of weather polygons" style="padding:0.35rem 0.7rem;font-size:0.65rem">H3 cells</button>
+    <button id="causal-toggle" class="region-btn active" title="Show the causal DAG over weather, TFRs, vessels, and aircraft" style="padding:0.35rem 0.7rem;font-size:0.65rem">Causal</button>
     <a href="dag.html" class="nav-link">Causal DAG</a>
     <a href="index.html" class="nav-link">Overview</a>
   </div>
@@ -258,6 +265,12 @@
     <div class="legend-item"><div style="width:14px;height:8px;background:#ec4899;opacity:0.55;border:1px dashed #ec4899;flex-shrink:0"></div>VIP</div>
     <div class="legend-item"><div style="width:14px;height:8px;background:#0ea5e9;opacity:0.55;border:1px dashed #0ea5e9;flex-shrink:0"></div>Space ops</div>
     <div class="legend-item"><div style="width:14px;height:8px;background:#14b8a6;opacity:0.55;border:1px dashed #14b8a6;flex-shrink:0"></div>Air shows / sports</div>
+    <div class="legend-section">Causal DAG</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div>Weather (root)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#a855f7"></div>Airspace / TFR (root)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#06b6d4"></div>Maritime event</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>Aviation event</div>
+    <div class="legend-item"><div style="width:16px;height:2px;background:#94a3b8;flex-shrink:0"></div>Causal edge</div>
     <div class="legend-section">Coverage</div>
     <div class="legend-item"><div style="width:16px;height:2px;border-top:2px dashed #06b6d4;flex-shrink:0"></div>Data Collection</div>
     <div class="trail-toggle" id="trail-toggle" onclick="toggleLongTail()">
@@ -278,6 +291,7 @@ const VESSEL_REFRESH_MS = 45000;
 const AIRCRAFT_REFRESH_MS = 22000;
 const WEATHER_REFRESH_MS = 300000;  // 5 min — NWS alerts change slowly
 const TFR_REFRESH_MS = 900000;  // 15 min — FAA TFRs change slowly
+const CAUSAL_REFRESH_MS = 60000;  // 1 min — causal layer recomputes cheaply
 let coverageBbox = null; // set from /health API
 let allRegions = {};     // from /health .regions
 let activeRegion = null; // current region name
@@ -332,6 +346,18 @@ const TFR_COLORS = {
 };
 const TFR_COLOR_DEFAULT = '#94a3b8';
 let lastTFRs = [];
+
+// Causal DAG node domain → color
+const CAUSAL_COLORS = {
+  weather:  '#ef4444',  // red — exogenous weather cause
+  airspace: '#a855f7',  // purple — exogenous TFR cause
+  maritime: '#06b6d4',  // cyan — vessel events
+  aviation: '#f59e0b',  // amber — aircraft events
+  orbital:  '#84cc16',
+};
+const CAUSAL_DEFAULT = '#94a3b8';
+let lastCausalLayer = null;
+let showCausalLayer = true;
 
 // Flight phase comes from the server (flight_phase field).
 // Fallback for compatibility if field is missing.
@@ -792,6 +818,115 @@ function showTFRInfo(props) {
   panel.classList.add('visible');
 }
 
+async function fetchCausalLayer() {
+  try {
+    const r = await fetch(`${API}/api/causal/layer`);
+    return await r.json();
+  } catch (e) {
+    console.error('causal layer fetch error', e);
+    return null;
+  }
+}
+
+function updateCausalLayer(layer) {
+  if (!layer) return;
+  lastCausalLayer = layer;
+
+  // Index nodes by id for edge resolution
+  const nodeById = {};
+  (layer.nodes || []).forEach(n => { nodeById[n.id] = n; });
+
+  // Node features (Points)
+  const nodeFeatures = (layer.nodes || [])
+    .filter(n => n.lat !== null && n.lat !== undefined && n.lng !== null && n.lng !== undefined)
+    .map(n => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [n.lng, n.lat] },
+      properties: {
+        id: n.id,
+        label: n.label || '',
+        domain: n.domain || 'unknown',
+        event_type: n.event_type || '',
+        observed_value: n.observed_value || 0,
+        timestamp: n.timestamp || '',
+        color: CAUSAL_COLORS[n.domain] || CAUSAL_DEFAULT,
+      },
+    }));
+
+  // Edge features (LineStrings between source.position and target.position)
+  const edgeFeatures = (layer.edges || [])
+    .map(e => {
+      const src = nodeById[e.source];
+      const tgt = nodeById[e.target];
+      if (!src || !tgt) return null;
+      if (src.lat == null || src.lng == null || tgt.lat == null || tgt.lng == null) return null;
+      return {
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: [[src.lng, src.lat], [tgt.lng, tgt.lat]],
+        },
+        properties: {
+          source: e.source,
+          target: e.target,
+          strength: e.strength || 0,
+          mechanism: e.mechanism || '',
+          color: CAUSAL_COLORS[src.domain] || CAUSAL_DEFAULT,
+        },
+      };
+    })
+    .filter(Boolean);
+
+  setSourceData('causal-nodes', { type: 'FeatureCollection', features: nodeFeatures });
+  setSourceData('causal-edges', { type: 'FeatureCollection', features: edgeFeatures });
+
+  document.getElementById('causal-count').textContent =
+    `${layer.node_count}n/${layer.edge_count}e`;
+}
+
+function showCausalNodeInfo(props) {
+  const panel = document.getElementById('info');
+  const nameEl = document.getElementById('info-name');
+  const kindEl = document.getElementById('info-kind');
+  const rowsEl = document.getElementById('info-rows');
+  nameEl.textContent = props.label || props.event_type || 'Causal node';
+  nameEl.style.color = props.color || CAUSAL_DEFAULT;
+  kindEl.textContent = (props.domain || '').toUpperCase() + ' · ' + (props.event_type || '');
+
+  // Walk the cached layer for incoming and outgoing edges
+  const incoming = [], outgoing = [];
+  if (lastCausalLayer) {
+    (lastCausalLayer.edges || []).forEach(e => {
+      if (e.target === props.id) incoming.push(e);
+      if (e.source === props.id) outgoing.push(e);
+    });
+  }
+  const fmt = (e, dir) => {
+    const otherId = dir === 'in' ? e.source : e.target;
+    const other = (lastCausalLayer.nodes || []).find(n => n.id === otherId);
+    const otherLabel = other ? (other.label || other.event_type) : otherId;
+    return `<li><span style="color:var(--accent-cyan)">${e.strength.toFixed(2)}</span> · ${otherLabel}</li>`;
+  };
+  rowsEl.innerHTML = `
+    <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.4rem">
+      Confidence: ${(props.observed_value || 0).toFixed(2)}
+      ${props.timestamp ? '· ' + new Date(props.timestamp).toLocaleString() : ''}
+    </div>
+    ${incoming.length ? `<div style="font-size:0.7rem;color:var(--text-secondary);margin-top:0.4rem">Caused by:<ul style="margin:0.3rem 0 0.6rem 1rem">${incoming.map(e => fmt(e, 'in')).join('')}</ul></div>` : ''}
+    ${outgoing.length ? `<div style="font-size:0.7rem;color:var(--text-secondary);margin-top:0.4rem">Causes:<ul style="margin:0.3rem 0 0.6rem 1rem">${outgoing.map(e => fmt(e, 'out')).join('')}</ul></div>` : ''}
+    ${(!incoming.length && !outgoing.length) ? '<div style="font-size:0.7rem;color:var(--text-muted)">Isolated node — no causal links yet.</div>' : ''}
+  `;
+  panel.classList.add('visible');
+}
+
+function setCausalLayerVisibility(visible) {
+  showCausalLayer = visible;
+  const vis = visible ? 'visible' : 'none';
+  ['causal-edges-line', 'causal-nodes-circles', 'causal-nodes-halo'].forEach(id => {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+  });
+}
+
 function setH3OverlayVisibility(visible) {
   showH3CellsOverlay = visible;
   const vis = visible ? 'visible' : 'none';
@@ -1120,6 +1255,10 @@ map.on('load', async () => {
   // TFR source — initialized empty; populated by updateTFRs.
   setSourceData('tfr-polygons', empty);
 
+  // Causal DAG sources — initialized empty; populated by updateCausalLayer.
+  setSourceData('causal-edges', empty);
+  setSourceData('causal-nodes', empty);
+
   // Weather layers. Drawn under entity icons but above the basemap.
   // Polygon fill (severity-colored, semi-transparent)
   map.addLayer({
@@ -1177,6 +1316,61 @@ map.on('load', async () => {
     map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
   });
 
+  // Causal DAG layers — drawn on top so node circles read clearly over
+  // entities and polygons. Edges are drawn first so node circles overdraw
+  // line endpoints.
+  map.addLayer({
+    id: 'causal-edges-line', type: 'line', source: 'causal-edges',
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': ['interpolate', ['linear'], ['get', 'strength'],
+        0, 0.6, 1, 3.5,
+      ],
+      'line-opacity': 0.65,
+    },
+  });
+  map.addLayer({
+    id: 'causal-nodes-halo', type: 'circle', source: 'causal-nodes',
+    paint: {
+      'circle-color': ['get', 'color'],
+      'circle-radius': ['interpolate', ['linear'], ['zoom'],
+        4, 6, 8, 10, 12, 14,
+      ],
+      'circle-opacity': 0.18,
+      'circle-stroke-color': ['get', 'color'],
+      'circle-stroke-width': 0,
+    },
+  });
+  map.addLayer({
+    id: 'causal-nodes-circles', type: 'circle', source: 'causal-nodes',
+    paint: {
+      'circle-color': ['get', 'color'],
+      'circle-radius': ['interpolate', ['linear'], ['zoom'],
+        4, 3, 8, 5, 12, 7,
+      ],
+      'circle-opacity': 0.92,
+      'circle-stroke-color': '#0a0e17',
+      'circle-stroke-width': 1.5,
+    },
+  });
+
+  map.on('click', 'causal-nodes-circles', (e) => {
+    if (e.features && e.features[0]) showCausalNodeInfo(e.features[0].properties);
+  });
+  ['causal-nodes-circles', 'causal-nodes-halo'].forEach(layer => {
+    map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+  });
+
+  // Causal toggle button
+  const causalBtn = document.getElementById('causal-toggle');
+  if (causalBtn) {
+    causalBtn.onclick = () => {
+      setCausalLayerVisibility(!showCausalLayer);
+      causalBtn.classList.toggle('active', showCausalLayer);
+    };
+  }
+
   // H3-cells overlay toggle button in the header
   const h3Btn = document.getElementById('h3-toggle');
   if (h3Btn) {
@@ -1189,19 +1383,21 @@ map.on('load', async () => {
   initLayers();
 
   // Initial fetch
-  const [vessels, aircraft, alerts, tfrs] = await Promise.all([
-    fetchVessels(), fetchAircraft(), fetchWeatherAlerts(), fetchTFRs(),
+  const [vessels, aircraft, alerts, tfrs, causal] = await Promise.all([
+    fetchVessels(), fetchAircraft(), fetchWeatherAlerts(), fetchTFRs(), fetchCausalLayer(),
   ]);
   updateVessels(vessels);
   updateAircraft(aircraft);
   updateWeatherAlerts(alerts);
   updateTFRs(tfrs);
+  updateCausalLayer(causal);
 
   // Separate intervals
   setInterval(async () => { updateVessels(await fetchVessels()); }, VESSEL_REFRESH_MS);
   setInterval(async () => { updateAircraft(await fetchAircraft()); }, AIRCRAFT_REFRESH_MS);
   setInterval(async () => { updateWeatherAlerts(await fetchWeatherAlerts()); }, WEATHER_REFRESH_MS);
   setInterval(async () => { updateTFRs(await fetchTFRs()); }, TFR_REFRESH_MS);
+  setInterval(async () => { updateCausalLayer(await fetchCausalLayer()); }, CAUSAL_REFRESH_MS);
   setInterval(refreshAdvisories, 300000); // 5 minutes
 });
 </script>

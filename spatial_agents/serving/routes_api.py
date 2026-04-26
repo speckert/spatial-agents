@@ -14,6 +14,10 @@ Version History:
                        against REGION_CELLS. Absent = unfiltered (all
                        active regions). Canonical pattern for clients that
                        display one region at a time — Claude 4.7
+    0.6.0  2026-04-25  Added /causal/layer endpoint — geographic causal
+                       DAG over all active feeds (vessels, aircraft,
+                       weather alerts, TFRs). Optional ?region= filter
+                       follows the canonical pattern — Claude 4.7
 """
 
 from __future__ import annotations
@@ -28,12 +32,13 @@ from spatial_agents.causal.dag_builder import DAGBuilder
 from spatial_agents.causal.event_detector import EventDetector
 from spatial_agents.causal.graph_serializer import GraphSerializer
 from spatial_agents.causal.intervention import InterventionEngine
-from spatial_agents.config import REGION_CELLS
+from spatial_agents.config import ACTIVE_REGIONS, REGION_CELLS
 from spatial_agents.intelligence.token_budget import TokenBudgetManager
 from spatial_agents.models import (
     AircraftResponse,
     AircraftWithTrack,
     CausalEmptyResponse,
+    CausalLayerResponse,
     DataDomain,
     IntelligenceResponse,
     TokenBudget,
@@ -276,6 +281,92 @@ async def get_intelligence(
         payload_tokens=payload_tokens,
         note="FM evaluation pending — shows prompt payload and budget",
         timestamp=datetime.now(timezone.utc),
+    )
+
+
+@router.get("/causal/layer", response_model=CausalLayerResponse)
+async def get_causal_layer(
+    region: str | None = Query(
+        default=None,
+        description="Optional region name (e.g. san_francisco, boston). "
+                    "Filters vessels/aircraft to that region's 7-cell tile "
+                    "and weather/TFR events to those intersecting the region. "
+                    "Absent = run across all active regions.",
+    ),
+) -> CausalLayerResponse:
+    """
+    Return a geographically-positioned causal DAG suitable for rendering
+    as a map layer.
+
+    Lifts the four live feeds — vessels, aircraft, NWS weather alerts,
+    FAA TFRs — into a structural causal graph:
+
+      * weather_alert and tfr_active nodes are exogenous roots positioned
+        at their polygon centroid.
+      * vessel_loitering, dark_vessel_gap, ground_stop_indicator, and
+        density_anomaly nodes are downstream effects positioned at the
+        affected entity's location.
+      * Edges connect causes to effects via the domain rule engine
+        (Pearl-style structural model).
+
+    Every node carries lat/lng so a client can draw the DAG over the
+    same map that shows the underlying entities and polygons.
+    """
+    if _feed_manager is None:
+        raise HTTPException(503, "Feed manager not initialized")
+
+    if region is not None:
+        if _region_cell_set(region) is None:
+            raise HTTPException(400, f"Unknown region: {region}")
+        regions_to_run = [region]
+    else:
+        regions_to_run = list(ACTIVE_REGIONS)
+
+    all_alerts = _feed_manager.get_latest_alerts()
+    all_tfrs = _feed_manager.get_latest_tfrs()
+    all_vessels = _feed_manager.get_latest_vessels()
+    all_aircraft = _feed_manager.get_latest_aircraft()
+
+    nodes_out = []
+    edges_out = []
+
+    for r in regions_to_run:
+        cs = _region_cell_set(r)
+        if not cs:
+            continue
+        vessels = [v for v in all_vessels if v.h3_cells.get(4) in cs]
+        aircraft = [a for a in all_aircraft if a.h3_cells.get(4) in cs]
+        alerts = [w for w in all_alerts if r in w.regions]
+        tfrs = [t for t in all_tfrs if r in t.regions]
+
+        events = _event_detector.detect_all(
+            vessels=vessels,
+            aircraft=aircraft,
+            h3_cell=r,
+            alerts=alerts,
+            tfrs=tfrs,
+        )
+        graph = _dag_builder.build(events, r)
+
+        # Region-prefix node IDs so a multi-region call returns globally-
+        # unique IDs even though each region builds its own DAG.
+        prefix = f"{r}::"
+        id_remap = {n.id: prefix + n.id for n in graph.nodes}
+        for n in graph.nodes:
+            n.id = id_remap[n.id]
+            nodes_out.append(n)
+        for e in graph.edges:
+            e.source = id_remap.get(e.source, e.source)
+            e.target = id_remap.get(e.target, e.target)
+            edges_out.append(e)
+
+    return CausalLayerResponse(
+        region=region,
+        nodes=nodes_out,
+        edges=edges_out,
+        node_count=len(nodes_out),
+        edge_count=len(edges_out),
+        generated_at=datetime.now(timezone.utc),
     )
 
 

@@ -14,6 +14,9 @@ Causal discovery uses a combination of:
 
 Version History:
     0.1.0  2026-03-28  Initial DAG builder with domain rule engine
+    0.2.0  2026-04-25  Added concrete weather_alert and tfr_active
+                       cause types so live NWS / FAA feeds drive the
+                       DAG as exogenous roots — Claude 4.7
 """
 
 from __future__ import annotations
@@ -35,13 +38,31 @@ logger = logging.getLogger(__name__)
 
 # Each rule: (cause_type, effect_type, base_strength, mechanism)
 CAUSAL_RULES: list[tuple[str, str, float, str]] = [
-    # Weather → traffic disruption
+    # Weather → traffic disruption (legacy generic + concrete NWS-driven)
     ("weather_event", "vessel_loitering", 0.7,
      "Adverse weather causes vessels to anchor or slow down"),
     ("weather_event", "ground_stop_indicator", 0.8,
      "Severe weather triggers ground stops at airports"),
     ("weather_event", "density_anomaly_high", 0.6,
      "Weather-driven delays increase local vessel/aircraft density"),
+
+    # NWS active alerts (exogenous roots — drive everything below)
+    ("weather_alert", "vessel_loitering", 0.7,
+     "Severe weather drives vessels to anchor or reduce speed"),
+    ("weather_alert", "ground_stop_indicator", 0.85,
+     "Severe weather triggers airport ground stops"),
+    ("weather_alert", "density_anomaly_high", 0.6,
+     "Weather-driven delays back up vessels and aircraft into dense clusters"),
+    ("weather_alert", "dark_vessel_gap", 0.35,
+     "Severe weather may interrupt AIS reception (antenna icing, sea state)"),
+
+    # FAA TFRs (exogenous airspace constraints)
+    ("tfr_active", "ground_stop_indicator", 0.6,
+     "Active TFR forces aircraft to delay, hold, or reroute around the restricted volume"),
+    ("tfr_active", "density_anomaly_low", 0.75,
+     "Active TFR voids the affected airspace of normal traffic"),
+    ("tfr_active", "density_anomaly_high", 0.4,
+     "Aircraft rerouting around an active TFR concentrates traffic in adjacent corridors"),
 
     # Port congestion chains
     ("density_anomaly_high", "vessel_loitering", 0.65,

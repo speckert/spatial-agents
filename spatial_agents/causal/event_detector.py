@@ -12,6 +12,10 @@ records that become nodes in the structural causal model:
 
 Version History:
     0.1.0  2026-03-28  Initial event detector
+    0.2.0  2026-04-25  Geographic positioning on detected events,
+                       new detect_weather_events / detect_tfr_events
+                       to lift NWS alerts and FAA TFRs into the
+                       causal graph as exogenous causes — Claude 4.7
 """
 
 from __future__ import annotations
@@ -27,8 +31,10 @@ from spatial_agents.models import (
     AircraftRecord,
     CausalNode,
     DataDomain,
+    TFR,
     VesselRecord,
     VesselTrack,
+    WeatherAlert,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +51,8 @@ class DetectedEvent:
     timestamp: datetime
     confidence: float          # 0-1
     metrics: dict[str, float]  # Supporting quantitative data
+    lat: float | None = None   # Geographic position for map-layer rendering
+    lng: float | None = None
 
     def to_causal_node(self, node_id: str) -> CausalNode:
         """Convert to a CausalNode for DAG construction."""
@@ -55,7 +63,60 @@ class DetectedEvent:
             event_type=self.event_type,
             observed_value=self.confidence,
             timestamp=self.timestamp,
+            lat=self.lat,
+            lng=self.lng,
         )
+
+
+# ---------------------------------------------------------------------------
+# Geometry helpers
+# ---------------------------------------------------------------------------
+
+def _polygon_centroid(geometry: dict | None) -> tuple[float, float] | None:
+    """Compute (lat, lng) centroid of a GeoJSON Polygon/MultiPolygon outer ring.
+
+    For map placement of causal nodes derived from weather alerts and TFRs.
+    Returns the simple mean of the outer-ring vertices — close enough for
+    rendering a single point on the map.
+    """
+    if not geometry:
+        return None
+    gtype = geometry.get("type")
+    coords = geometry.get("coordinates") or []
+    if gtype == "Polygon":
+        ring = coords[0] if coords else []
+    elif gtype == "MultiPolygon":
+        ring = coords[0][0] if coords and coords[0] else []
+    else:
+        return None
+    if not ring:
+        return None
+    lat_sum = sum(pt[1] for pt in ring)
+    lng_sum = sum(pt[0] for pt in ring)
+    n = len(ring)
+    return (lat_sum / n, lng_sum / n)
+
+
+# Severity → confidence for weather_alert events.
+_WEATHER_SEVERITY_CONF = {
+    "extreme": 0.95,
+    "severe":  0.85,
+    "moderate": 0.65,
+    "minor":   0.45,
+    "unknown": 0.30,
+}
+
+# TFR LEGAL category → confidence for tfr_active events.
+_TFR_TYPE_CONF = {
+    "SECURITY":             0.85,
+    "VIP":                  0.85,
+    "HAZARDS":              0.80,
+    "FIRE":                 0.85,
+    "SPACE OPERATIONS":     0.90,
+    "AIR SHOWS/SPORTS":     0.70,
+    "UAS PUBLIC GATHERING": 0.60,
+    "SPECIAL":              0.60,
+}
 
 
 class EventDetector:
@@ -93,9 +154,18 @@ class EventDetector:
         aircraft: list[AircraftRecord],
         h3_cell: str,
         tracks: list[VesselTrack] | None = None,
+        alerts: list[WeatherAlert] | None = None,
+        tfrs: list[TFR] | None = None,
     ) -> list[DetectedEvent]:
         """Run all detection algorithms and return combined events."""
         events: list[DetectedEvent] = []
+
+        # Exogenous causes (weather + airspace) — added first so the
+        # DAG builder can attach them as roots of downstream chains.
+        if alerts:
+            events.extend(self.detect_weather_events(alerts, h3_cell))
+        if tfrs:
+            events.extend(self.detect_tfr_events(tfrs, h3_cell))
 
         # Vessel-based detections
         events.extend(self.detect_loitering(vessels, h3_cell))
@@ -145,6 +215,7 @@ class EventDetector:
 
             avg_speed = np.mean([r.speed_knots for r in records if r.speed_knots])
             name = records[0].name or mmsi
+            last = records[-1].position
 
             events.append(DetectedEvent(
                 event_type="vessel_loitering",
@@ -152,12 +223,14 @@ class EventDetector:
                 description=f"Vessel {name} loitering at {avg_speed:.1f} knots",
                 entity_ids=[mmsi],
                 h3_cell=h3_cell,
-                timestamp=records[-1].position.timestamp,
+                timestamp=last.timestamp,
                 confidence=min(0.9, len(records) * 0.15),
                 metrics={
                     "avg_speed_knots": float(avg_speed),
                     "report_count": len(records),
                 },
+                lat=last.lat,
+                lng=last.lng,
             ))
 
         return events
@@ -200,6 +273,8 @@ class EventDetector:
                             "last_known_lat": prev.lat,
                             "last_known_lng": prev.lng,
                         },
+                        lat=prev.lat,
+                        lng=prev.lng,
                     ))
 
         return events
@@ -261,6 +336,9 @@ class EventDetector:
 
         # Simple heuristic: if >70% of aircraft are grounded, flag it
         if len(aircraft) >= 5 and len(grounded) / len(aircraft) > 0.7:
+            # Centroid of grounded aircraft for map placement
+            avg_lat = float(np.mean([a.position.lat for a in grounded])) if grounded else None
+            avg_lng = float(np.mean([a.position.lng for a in grounded])) if grounded else None
             events.append(DetectedEvent(
                 event_type="ground_stop_indicator",
                 domain=DataDomain.AVIATION,
@@ -277,6 +355,80 @@ class EventDetector:
                     "airborne_count": len(airborne),
                     "ground_pct": len(grounded) / len(aircraft),
                 },
+                lat=avg_lat,
+                lng=avg_lng,
             ))
 
+        return events
+
+    def detect_weather_events(
+        self,
+        alerts: list[WeatherAlert],
+        h3_cell: str,
+    ) -> list[DetectedEvent]:
+        """Lift NWS active alerts into the causal graph as exogenous causes.
+
+        One DetectedEvent per alert with a usable polygon. The alert
+        polygon's centroid becomes the map position; severity drives
+        confidence.
+        """
+        events: list[DetectedEvent] = []
+        for alert in alerts:
+            ll = _polygon_centroid(alert.polygon)
+            if ll is None:
+                continue
+            sev = (
+                alert.severity.value
+                if hasattr(alert.severity, "value") else str(alert.severity)
+            )
+            confidence = _WEATHER_SEVERITY_CONF.get(sev.lower(), 0.30)
+            label = f"{alert.event}"
+            if alert.headline:
+                label = f"{alert.event}: {alert.headline[:80]}"
+            events.append(DetectedEvent(
+                event_type="weather_alert",
+                domain=DataDomain.WEATHER,
+                description=label,
+                entity_ids=[alert.id],
+                h3_cell=h3_cell,
+                timestamp=alert.effective_at or datetime.now(timezone.utc),
+                confidence=confidence,
+                metrics={"severity": confidence},
+                lat=ll[0],
+                lng=ll[1],
+            ))
+        return events
+
+    def detect_tfr_events(
+        self,
+        tfrs: list[TFR],
+        h3_cell: str,
+    ) -> list[DetectedEvent]:
+        """Lift FAA active TFRs into the causal graph as exogenous causes.
+
+        One DetectedEvent per TFR with a usable polygon. The TFR
+        polygon's centroid becomes the map position; the FAA category
+        (LEGAL field) drives confidence.
+        """
+        events: list[DetectedEvent] = []
+        for tfr in tfrs:
+            ll = _polygon_centroid(tfr.polygon)
+            if ll is None:
+                continue
+            confidence = _TFR_TYPE_CONF.get(tfr.type, 0.50)
+            label = f"{tfr.type or 'TFR'}"
+            if tfr.title:
+                label = f"{label}: {tfr.title[:80]}"
+            events.append(DetectedEvent(
+                event_type="tfr_active",
+                domain=DataDomain.AIRSPACE,
+                description=label,
+                entity_ids=[tfr.notam_id],
+                h3_cell=h3_cell,
+                timestamp=tfr.last_modified or datetime.now(timezone.utc),
+                confidence=confidence,
+                metrics={"category_conf": confidence},
+                lat=ll[0],
+                lng=ll[1],
+            ))
         return events
