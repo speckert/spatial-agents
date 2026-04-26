@@ -17,6 +17,10 @@ Version History:
     0.4.0  2026-04-25  CoverageResponse adds primary_cell, buffer_cells,
                        and geometry (GeoJSON MultiPolygon of the 7-cell
                        region tile) — Claude 4.7
+    0.5.0  2026-04-25  Experiment: bbox dropped from CoverageResponse
+                       (geometry is now the source of truth for spatial
+                       extent). Legacy iOS 3.1 client to be tested
+                       against the bbox-less response — Claude 4.7
 """
 
 from __future__ import annotations
@@ -380,13 +384,14 @@ class CoverageBbox(BaseModel):
 
 
 class CoverageResponse(BaseModel):
-    """Data collection coverage area — actual bounds and H3 cell index."""
+    """Data collection coverage area — H3 cells and GeoJSON geometry.
+
+    Note: `bbox` was removed in 0.5.0 (2026-04-25). The 7-cell region tile
+    is now the canonical spatial extent — clients should derive any needed
+    rectangular bounds from `geometry` (e.g. fit-bounds for map camera).
+    """
     region: str = Field(
         description="Active region name (e.g. san_francisco, boston)",
-    )
-    bbox: CoverageBbox = Field(
-        description="Rectangular region where AIS and ADS-B data is actively collected. "
-                    "Use for map fitting and coverage display.",
     )
     h3_cells: dict[int, list[str]] = Field(
         description="Minimal set of H3 cells to query for data within the bbox. "

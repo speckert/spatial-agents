@@ -10,6 +10,10 @@ Version History:
     0.5.0  2026-04-25  Coverage now includes primary_cell, buffer_cells,
                        and a GeoJSON MultiPolygon geometry derived from
                        the 7-cell region tile in REGION_CELLS — Claude 4.7
+    0.6.0  2026-04-25  Experiment: bbox dropped from CoverageResponse
+                       payload (geometry is canonical). Internal
+                       _REGION_BBOXES kept only for h3_cells sampling.
+                       Tested against legacy iOS 3.1 client — Claude 4.7
 """
 
 from __future__ import annotations
@@ -160,7 +164,6 @@ async def health() -> HealthResponse:
     regions = {
         name: CoverageResponse(
             region=name,
-            bbox=_REGION_BBOXES[name],
             h3_cells=_REGION_H3[name],
             primary_cell=str(REGION_CELLS[name]["primary"]),
             buffer_cells=list(REGION_CELLS[name]["buffer"]),  # type: ignore[arg-type]

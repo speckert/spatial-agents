@@ -11,6 +11,9 @@
                        (primary cell solid, six buffer cells dashed) instead
                        of a bbox rectangle. Per-region counts filter by
                        res-4 cell membership rather than bbox — Claude 4.7
+    0.5.0  2026-04-25  /health no longer returns bbox; map derives its
+                       fit-bounds from the geometry MultiPolygon
+                       coordinates instead — Claude 4.7
 -->
 <html lang="en">
 <head>
@@ -424,6 +427,24 @@ const map = new maplibregl.Map({
   minZoom: 4,
 });
 
+// Derive a bbox from a GeoJSON MultiPolygon's coordinates.
+// Returns {min_lng, min_lat, max_lng, max_lat} or null if empty.
+function bboxFromGeometry(geom) {
+  if (!geom || !geom.coordinates || !geom.coordinates.length) return null;
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+  for (const poly of geom.coordinates) {
+    for (const ring of poly) {
+      for (const [lng, lat] of ring) {
+        if (lng < minLng) minLng = lng;
+        if (lng > maxLng) maxLng = lng;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+      }
+    }
+  }
+  return { min_lng: minLng, min_lat: minLat, max_lng: maxLng, max_lat: maxLat };
+}
+
 function fitToCoverage() {
   if (!coverageBbox) return;
   const bounds = [[coverageBbox.min_lng, coverageBbox.min_lat], [coverageBbox.max_lng, coverageBbox.max_lat]];
@@ -797,7 +818,7 @@ function switchRegion(name) {
   if (!allRegions[name]) return;
   activeRegion = name;
   const region = allRegions[name];
-  coverageBbox = region.bbox;
+  coverageBbox = bboxFromGeometry(region.geometry);
   H3_CELLS = region.h3_cells[String(RESOLUTION)] || [];
   activeCellSet = activeCellsForRegion(name);
 
@@ -827,10 +848,11 @@ map.on('load', async () => {
     allRegions = health.regions || {};
     const defaultRegion = Object.keys(allRegions)[0] || health.coverage.region;
     activeRegion = defaultRegion;
-    coverageBbox = allRegions[defaultRegion] ? allRegions[defaultRegion].bbox : health.coverage.bbox;
-    H3_CELLS = (allRegions[defaultRegion] ? allRegions[defaultRegion].h3_cells : health.coverage.h3_cells)[String(RESOLUTION)] || [];
+    const defaultRegionData = allRegions[defaultRegion] || health.coverage;
+    coverageBbox = bboxFromGeometry(defaultRegionData.geometry);
+    H3_CELLS = (defaultRegionData.h3_cells || {})[String(RESOLUTION)] || [];
     activeCellSet = activeCellsForRegion(defaultRegion);
-    updateAdvisories((allRegions[defaultRegion] || health.coverage).advisories || []);
+    updateAdvisories(defaultRegionData.advisories || []);
 
     // Build region switcher buttons
     const switcher = document.getElementById('region-switcher');
