@@ -21,6 +21,12 @@ Version History:
                        (geometry is now the source of truth for spatial
                        extent). Legacy iOS 3.1 client to be tested
                        against the bbox-less response — Claude 4.7
+    0.6.0  2026-04-25  Added WeatherAlert and WeatherAlertsResponse for
+                       NOAA NWS active-alerts ingest (polygon + mixed-res
+                       H3 compact cell set per alert) — Claude 4.7
+    0.6.1  2026-04-25  WeatherAlert.h3_cells_geometry — pre-rendered
+                       GeoJSON MultiPolygon of the compact cell set for
+                       client-side visualization — Claude 4.7
 """
 
 from __future__ import annotations
@@ -417,6 +423,70 @@ class CoverageResponse(BaseModel):
         default_factory=list,
         description="Data quality advisories for the active region. "
                     "Display these to users when non-empty.",
+    )
+
+
+class WeatherAlertSeverity(str, Enum):
+    """NWS alert severity levels (CAP standard)."""
+    EXTREME = "extreme"
+    SEVERE = "severe"
+    MODERATE = "moderate"
+    MINOR = "minor"
+    UNKNOWN = "unknown"
+
+
+class WeatherAlert(BaseModel):
+    """A single active NWS alert with polygon and H3 compact cell coverage."""
+    id: str = Field(description="NWS alert identifier (CAP id, stable across updates)")
+    event: str = Field(
+        description="Alert event type, e.g. 'Severe Thunderstorm Warning', "
+                    "'Small Craft Advisory', 'Coastal Flood Warning'."
+    )
+    severity: WeatherAlertSeverity = Field(
+        default=WeatherAlertSeverity.UNKNOWN,
+        description="CAP severity classification.",
+    )
+    headline: str = Field(default="", description="Short human-readable headline.")
+    description: str = Field(default="", description="Long-form alert text.")
+    sender: str = Field(default="", description="Issuing NWS office, e.g. 'NWS San Francisco CA'.")
+    effective_at: datetime | None = Field(
+        default=None, description="Time the alert becomes effective (UTC)."
+    )
+    expires_at: datetime | None = Field(
+        default=None, description="Time the alert expires (UTC)."
+    )
+    polygon: dict = Field(
+        default_factory=dict,
+        description="GeoJSON Polygon or MultiPolygon as published by NWS. "
+                    "Authoritative geometry for display.",
+    )
+    h3_cells_compact: list[str] = Field(
+        default_factory=list,
+        description="Mixed-resolution H3 compact cell set covering the alert "
+                    "polygon. Use for spatial queries and DAG joins.",
+    )
+    h3_cells_geometry: dict = Field(
+        default_factory=dict,
+        description="GeoJSON MultiPolygon of the h3_cells_compact set "
+                    "(one polygon per cell). Pre-rendered server-side so "
+                    "clients can visualize the cell approximation without "
+                    "an h3-js dependency.",
+    )
+    regions: list[str] = Field(
+        default_factory=list,
+        description="Active region names this alert intersects "
+                    "(e.g. ['san_francisco']).",
+    )
+
+
+class WeatherAlertsResponse(BaseModel):
+    """Response for GET /api/weather/alerts."""
+    alerts: list[WeatherAlert] = Field(
+        description="Currently active alerts intersecting any active region."
+    )
+    count: int = Field(description="Number of alerts in this response.")
+    last_updated: datetime = Field(
+        description="Time the underlying NWS feed was last fetched (UTC)."
     )
 
 

@@ -17,6 +17,10 @@ Version History:
                        periodic feed status logger (60s) with AIS flow warnings
     0.6.0  2026-04-24  Multi-region ADS-B polling (alternating regions),
                        removed dead near-edge code — Claude Opus 4.6
+    0.7.0  2026-04-25  Added NWS active-alerts poll loop (5-min cadence),
+                       weather feed surfaced as a third FeedStatus and
+                       cached alert list exposed via get_latest_alerts()
+                       — Claude 4.7
 """
 
 from __future__ import annotations
@@ -32,7 +36,8 @@ from spatial_agents.config import ACTIVE_REGIONS, REGIONS, config
 from spatial_agents.ingest.adsb_parser import ADSBParser
 from spatial_agents.ingest.ais_parser import AISParser
 from spatial_agents.ingest.aisstream_client import AISStreamClient
-from spatial_agents.models import AircraftRecord, FeedStatus, VesselRecord
+from spatial_agents.ingest.nws_client import NWSClient
+from spatial_agents.models import AircraftRecord, FeedStatus, VesselRecord, WeatherAlert
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +65,12 @@ class FeedManager:
         ais_parser: AISParser | None = None,
         adsb_parser: ADSBParser | None = None,
         aisstream_client: AISStreamClient | None = None,
+        nws_client: NWSClient | None = None,
     ) -> None:
         self._ais_parser = ais_parser or AISParser()
         self._adsb_parser = adsb_parser or ADSBParser()
         self._aisstream = aisstream_client or AISStreamClient()
+        self._nws = nws_client or NWSClient()
 
         # Record buffers — bounded deques to prevent memory growth
         self._vessel_buffer: deque[VesselRecord] = deque(maxlen=50_000)
@@ -88,6 +95,12 @@ class FeedManager:
         self._adsb_msg_count = 0
         self._ais_error: str | None = None
         self._adsb_error: str | None = None
+
+        # Weather alerts cache + health
+        self._weather_alerts: list[WeatherAlert] = []
+        self._weather_last_fetch: datetime | None = None
+        self._weather_msg_count = 0
+        self._weather_error: str | None = None
 
         # Control
         self._running = False
@@ -211,6 +224,7 @@ class FeedManager:
             asyncio.create_task(self._adsb_poll_loop(), name="adsb_poll"),
             asyncio.create_task(self._vessel_cleanup_loop(), name="vessel_cleanup"),
             asyncio.create_task(self._feed_status_loop(), name="feed_status"),
+            asyncio.create_task(self._weather_poll_loop(), name="weather_poll"),
         ]
         # Start AIS WebSocket if API key is configured
         if config.feeds.ais_api_key:
@@ -255,6 +269,14 @@ class FeedManager:
             if a.h3_cells.get(resolution) == h3_cell
         ]
 
+    def get_latest_alerts(self) -> list[WeatherAlert]:
+        """Return the most recently fetched NWS active alerts."""
+        return list(self._weather_alerts)
+
+    def get_weather_last_fetch(self) -> datetime | None:
+        """Time of the last successful NWS fetch (UTC)."""
+        return self._weather_last_fetch
+
     def health(self) -> list[FeedStatus]:
         """Return health status for all feeds."""
         uptime = time.monotonic() - self._start_time if self._start_time else 0
@@ -274,6 +296,13 @@ class FeedManager:
                 last_message_at=self._adsb_last_msg,
                 messages_per_minute=self._adsb_msg_count / rate_window,
                 error=self._adsb_error,
+            ),
+            FeedStatus(
+                name="weather",
+                connected=self._running and self._weather_error is None,
+                last_message_at=self._weather_last_fetch,
+                messages_per_minute=self._weather_msg_count / rate_window,
+                error=self._weather_error,
             ),
         ]
 
@@ -392,6 +421,30 @@ class FeedManager:
                 break
             except Exception as exc:
                 logger.error("Feed status loop error: %s", exc)
+
+    # --- NWS Weather Alerts Poll Loop ---
+
+    _WEATHER_POLL_INTERVAL_SEC = 300  # 5 minutes — alerts change slowly
+
+    async def _weather_poll_loop(self) -> None:
+        """Periodically fetch NWS active alerts intersecting active regions."""
+        # Initial small delay so logs from this loop don't drown the startup banner.
+        await asyncio.sleep(5)
+        while self._running:
+            try:
+                alerts = await self._nws.fetch_active_alerts()
+                self._weather_alerts = alerts
+                self._weather_last_fetch = datetime.now(timezone.utc)
+                self._weather_error = None
+                self._weather_msg_count += len(alerts)
+                logger.info("NWS poll: %d active alerts in active regions", len(alerts))
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                self._weather_error = str(exc)
+                logger.error("NWS poll error: %s", exc)
+
+            await asyncio.sleep(self._WEATHER_POLL_INTERVAL_SEC)
 
     # --- AIS WebSocket Loop ---
 

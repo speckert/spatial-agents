@@ -14,6 +14,10 @@
     0.5.0  2026-04-25  /health no longer returns bbox; map derives its
                        fit-bounds from the geometry MultiPolygon
                        coordinates instead — Claude 4.7
+    0.6.0  2026-04-25  NWS weather alerts overlay — severity-colored
+                       polygon fill + outline, optional H3 compact cell
+                       overlay (legend toggle) showing the mixed-resolution
+                       hex approximation. 5-min refresh — Claude 4.7
 -->
 <html lang="en">
 <head>
@@ -212,7 +216,8 @@
   </div>
   <div class="header-right">
     <div id="region-switcher"></div>
-    <span class="entity-count"><span class="status-dot"></span><strong id="vessel-count">—</strong> vessels, <strong id="aircraft-count">—</strong> aircraft</span>
+    <span class="entity-count"><span class="status-dot"></span><strong id="vessel-count">—</strong> vessels, <strong id="aircraft-count">—</strong> aircraft, <strong id="weather-count">0</strong> alerts</span>
+    <button id="h3-toggle" class="region-btn" title="Show H3 compact cell approximation of weather polygons" style="padding:0.35rem 0.7rem;font-size:0.65rem">H3 cells</button>
     <a href="dag.html" class="nav-link">Causal DAG</a>
     <a href="index.html" class="nav-link">Overview</a>
   </div>
@@ -261,6 +266,7 @@ let H3_CELLS = [];
 const RESOLUTION = 3;
 const VESSEL_REFRESH_MS = 45000;
 const AIRCRAFT_REFRESH_MS = 22000;
+const WEATHER_REFRESH_MS = 300000;  // 5 min — NWS alerts change slowly
 let coverageBbox = null; // set from /health API
 let allRegions = {};     // from /health .regions
 let activeRegion = null; // current region name
@@ -289,6 +295,18 @@ const AIRCRAFT_COLORS = {
   descending: '#f59e0b',
   ground:     '#78716c',
 };
+
+// NWS CAP severity → fill color
+const WEATHER_COLORS = {
+  extreme:  '#dc2626',  // red
+  severe:   '#f97316',  // orange
+  moderate: '#eab308',  // yellow
+  minor:    '#3b82f6',  // blue
+  unknown:  '#94a3b8',  // gray
+};
+
+let lastWeatherAlerts = [];
+let showH3CellsOverlay = false;  // toggled via legend
 
 // Flight phase comes from the server (flight_phase field).
 // Fallback for compatibility if field is missing.
@@ -617,6 +635,89 @@ function updateAircraft(entities) {
   updateCounts();
 }
 
+async function fetchWeatherAlerts() {
+  try {
+    const r = await fetch(`${API}/api/weather/alerts`);
+    const d = await r.json();
+    return d.alerts || [];
+  } catch (e) {
+    console.error('weather alerts fetch error', e);
+    return null;
+  }
+}
+
+function updateWeatherAlerts(alerts) {
+  if (!alerts) return;
+  lastWeatherAlerts = alerts;
+
+  // Build polygon FeatureCollection (one feature per alert, native NWS geometry)
+  const polyFeatures = alerts
+    .filter(a => a.polygon && a.polygon.coordinates && a.polygon.coordinates.length)
+    .map(a => ({
+      type: 'Feature',
+      geometry: a.polygon,
+      properties: {
+        id: a.id,
+        event: a.event,
+        severity: a.severity || 'unknown',
+        headline: a.headline || '',
+        description: a.description || '',
+        sender: a.sender || '',
+        expires_at: a.expires_at || '',
+        regions: (a.regions || []).join(','),
+        color: WEATHER_COLORS[a.severity] || WEATHER_COLORS.unknown,
+      },
+    }));
+
+  // Build H3 cell overlay FeatureCollection (mixed-res compact cells per alert)
+  const cellFeatures = alerts
+    .filter(a => a.h3_cells_geometry && a.h3_cells_geometry.coordinates && a.h3_cells_geometry.coordinates.length)
+    .map(a => ({
+      type: 'Feature',
+      geometry: a.h3_cells_geometry,
+      properties: {
+        id: a.id,
+        severity: a.severity || 'unknown',
+        cell_count: (a.h3_cells_compact || []).length,
+        color: WEATHER_COLORS[a.severity] || WEATHER_COLORS.unknown,
+      },
+    }));
+
+  setSourceData('weather-polygons', { type: 'FeatureCollection', features: polyFeatures });
+  setSourceData('weather-h3-cells', { type: 'FeatureCollection', features: cellFeatures });
+
+  document.getElementById('weather-count').textContent = alerts.length;
+}
+
+function showWeatherInfo(props) {
+  const panel = document.getElementById('info');
+  const nameEl = document.getElementById('info-name');
+  const kindEl = document.getElementById('info-kind');
+  const rowsEl = document.getElementById('info-rows');
+  const expires = props.expires_at ? new Date(props.expires_at).toLocaleString() : 'unknown';
+  nameEl.textContent = props.event || 'Weather Alert';
+  nameEl.style.color = props.color || '#06b6d4';
+  kindEl.textContent = (props.severity || 'unknown').toUpperCase() + ' · ' + (props.sender || 'NWS');
+  rowsEl.innerHTML = `
+    <div style="font-size:0.8rem;color:var(--text-secondary);line-height:1.45;margin-bottom:0.6rem">
+      ${(props.headline || '').replace(/[<>]/g, '')}
+    </div>
+    <div style="font-size:0.7rem;color:var(--text-muted)">
+      Expires: ${expires}<br>
+      Regions: ${props.regions || '—'}
+    </div>
+  `;
+  panel.classList.add('visible');
+}
+
+function setH3OverlayVisibility(visible) {
+  showH3CellsOverlay = visible;
+  const vis = visible ? 'visible' : 'none';
+  ['weather-h3-cells-fill', 'weather-h3-cells-outline'].forEach(id => {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+  });
+}
+
 function initLayers() {
   if (layersInitialized) return;
   layersInitialized = true;
@@ -929,16 +1030,66 @@ map.on('load', async () => {
   setSourceData('aircraft', empty);
   setSourceData('vessel-trails', empty);
   setSourceData('aircraft-trails', empty);
+
+  // Weather sources — initialized empty; populated by updateWeatherAlerts.
+  setSourceData('weather-polygons', empty);
+  setSourceData('weather-h3-cells', empty);
+
+  // Weather layers. Drawn under entity icons but above the basemap.
+  // Polygon fill (severity-colored, semi-transparent)
+  map.addLayer({
+    id: 'weather-polygons-fill', type: 'fill', source: 'weather-polygons',
+    paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.18 },
+  });
+  // Polygon outline
+  map.addLayer({
+    id: 'weather-polygons-outline', type: 'line', source: 'weather-polygons',
+    paint: { 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-opacity': 0.85 },
+  });
+  // H3 cell overlay (toggle on demand) — fill + outline of the compact cell set
+  map.addLayer({
+    id: 'weather-h3-cells-fill', type: 'fill', source: 'weather-h3-cells',
+    layout: { visibility: 'none' },
+    paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.08 },
+  });
+  map.addLayer({
+    id: 'weather-h3-cells-outline', type: 'line', source: 'weather-h3-cells',
+    layout: { visibility: 'none' },
+    paint: { 'line-color': ['get', 'color'], 'line-width': 1, 'line-dasharray': [2, 2], 'line-opacity': 0.7 },
+  });
+
+  // Click handler for weather polygons → info panel
+  map.on('click', 'weather-polygons-fill', (e) => {
+    if (e.features && e.features[0]) showWeatherInfo(e.features[0].properties);
+  });
+  ['weather-polygons-fill', 'weather-polygons-outline'].forEach(layer => {
+    map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+  });
+
+  // H3-cells overlay toggle button in the header
+  const h3Btn = document.getElementById('h3-toggle');
+  if (h3Btn) {
+    h3Btn.onclick = () => {
+      setH3OverlayVisibility(!showH3CellsOverlay);
+      h3Btn.classList.toggle('active', showH3CellsOverlay);
+    };
+  }
+
   initLayers();
 
   // Initial fetch
-  const [vessels, aircraft] = await Promise.all([fetchVessels(), fetchAircraft()]);
+  const [vessels, aircraft, alerts] = await Promise.all([
+    fetchVessels(), fetchAircraft(), fetchWeatherAlerts(),
+  ]);
   updateVessels(vessels);
   updateAircraft(aircraft);
+  updateWeatherAlerts(alerts);
 
   // Separate intervals
   setInterval(async () => { updateVessels(await fetchVessels()); }, VESSEL_REFRESH_MS);
   setInterval(async () => { updateAircraft(await fetchAircraft()); }, AIRCRAFT_REFRESH_MS);
+  setInterval(async () => { updateWeatherAlerts(await fetchWeatherAlerts()); }, WEATHER_REFRESH_MS);
   setInterval(refreshAdvisories, 300000); // 5 minutes
 });
 </script>
