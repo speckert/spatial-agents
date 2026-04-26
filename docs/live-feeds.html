@@ -75,8 +75,9 @@
 <div class="icon">&#x1F6F0;</div>
 <h1>Live <em>Global Feeds</em></h1>
 <p class="lead">
-  Spatial Agents ingests real-time position data from three domains — maritime,
-  aviation, and orbital — using public data sources that require no special
+  Spatial Agents ingests real-time position and event data — maritime
+  vessels, aircraft, severe-weather alerts, and active airspace
+  restrictions — using public data sources that require no special
   credentials or government access.
 </p>
 
@@ -116,6 +117,54 @@
   (knots, feet per minute) and enriched with H3 cell assignments.
 </p>
 
+<h2>NWS — Severe Weather Alerts</h2>
+<p>
+  Active alerts from the National Weather Service public API
+  (<code>api.weather.gov/alerts/active</code>). Each alert is a CAP
+  (Common Alerting Protocol) record with a published polygon — tornado
+  warnings, severe thunderstorm warnings, flood warnings, marine
+  advisories, and so on. Spatial Agents polls every 5 minutes and
+  serves alerts as native NWS GeoJSON plus a mixed-resolution H3
+  compact cell cover for spatial joins against entity positions.
+</p>
+<div class="info-card">
+  <h3>What the feed provides</h3>
+  <p>CAP id, event type, severity (Extreme / Severe / Moderate / Minor),
+     headline, long description, issuing NWS office, effective and
+     expiration timestamps, and an authoritative GeoJSON polygon or
+     multi-polygon for each alert.</p>
+  <p>Each alert is tagged with the active region names its polygon
+     intersects, and shipped with a pre-rendered GeoJSON MultiPolygon
+     of its H3 compact cell cover so clients can visualize the cell
+     approximation without an h3-js dependency.</p>
+</div>
+
+<h2>FAA NOTAMs — Temporary Flight Restrictions</h2>
+<p>
+  Active TFRs (Temporary Flight Restrictions) are the geometry-bearing
+  subset of the FAA's NOTAM stream — Notices to Air Missions covering
+  presidential movements, sporting events, fires, hazards, space
+  operations, and security airspace. Spatial Agents pulls the FAA
+  GeoServer WFS feed (<code>tfr.faa.gov/geoserver/TFR</code>) every
+  15 minutes and serves the boundary polygons identically to weather
+  alerts: native GeoJSON plus an H3 compact cell cover.
+</p>
+<div class="info-card">
+  <h3>What the feed provides</h3>
+  <p>NOTAM id (e.g. <code>6/5779</code>), TFR category — SECURITY, VIP,
+     HAZARDS, SPACE OPERATIONS, AIR SHOWS/SPORTS, UAS PUBLIC GATHERING,
+     SPECIAL, FIRE — title text, US state, issuing ARTCC facility, last
+     modification timestamp, polygon, and H3 compact cells.</p>
+  <p>TFRs are colored by category on the live map: security purple,
+     hazards red, VIP pink, space operations sky, air shows teal.
+     Click any polygon for the NOTAM detail.</p>
+</div>
+<p>
+  Point-based NOTAMs (runway closures, navaid outages, etc.) are not
+  yet ingested — they live in the FAA NOTAM API which requires an
+  API key and renders as airport-tied markers rather than polygons.
+</p>
+
 <h2>Satellite TLE — Orbital Tracking</h2>
 <p>
   Two-Line Element sets from public catalogs provide orbital parameters for
@@ -132,10 +181,114 @@
 </p>
 <table>
   <tr><th>Endpoint</th><th>Returns</th></tr>
-  <tr><td><code>/api/vessels/{h3_cell}</code></td><td>Vessel positions in cell</td></tr>
-  <tr><td><code>/api/aircraft/{h3_cell}</code></td><td>Aircraft positions in cell</td></tr>
+  <tr><td><code>/api/vessels?region=&lt;name&gt;</code></td><td>All vessels (or one region)</td></tr>
+  <tr><td><code>/api/aircraft?region=&lt;name&gt;</code></td><td>All aircraft (or one region)</td></tr>
+  <tr><td><code>/api/weather/alerts?region=&lt;name&gt;</code></td><td>NWS active alerts (CONUS or region)</td></tr>
+  <tr><td><code>/api/tfr?region=&lt;name&gt;</code></td><td>FAA active TFRs (CONUS or region)</td></tr>
   <tr><td><code>/health</code></td><td>Feed connection status and message rates</td></tr>
 </table>
+
+<div class="divider"></div>
+
+<h2>Active NOTAMs</h2>
+<p>
+  Every active CONUS Temporary Flight Restriction, fetched live from
+  <code>/api/tfr</code> with no region filter. Updated every 15 minutes.
+</p>
+
+<div id="notam-summary" class="info-card">
+  <h3>Loading…</h3>
+  <p>Fetching the live FAA TFR feed.</p>
+</div>
+
+<table id="notam-table" style="display:none">
+  <thead>
+    <tr>
+      <th>NOTAM</th><th>Type</th><th>State</th><th>Title</th><th>Modified</th>
+    </tr>
+  </thead>
+  <tbody id="notam-rows"></tbody>
+</table>
+
+<style>
+  .notam-pill {
+    display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px;
+    font-family: var(--font-mono); font-size: 0.65rem; letter-spacing: 0.04em;
+    color: #0a0e17; font-weight: 600;
+  }
+  .notam-tot { font-family: var(--font-mono); font-size: 0.7rem;
+               color: var(--accent-cyan); letter-spacing: 0.1em; }
+</style>
+
+<script>
+const NOTAM_API = window.location.hostname === 'agents.specktech.com'
+  ? '/api/tfr'
+  : 'http://127.0.0.1:8012/api/tfr';
+
+const NOTAM_COLORS = {
+  'SECURITY':              '#a855f7',
+  'VIP':                   '#ec4899',
+  'HAZARDS':               '#ef4444',
+  'SPACE OPERATIONS':      '#0ea5e9',
+  'AIR SHOWS/SPORTS':      '#14b8a6',
+  'UAS PUBLIC GATHERING':  '#f59e0b',
+  'SPECIAL':               '#84cc16',
+  'FIRE':                  '#f97316',
+};
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+async function loadNotams() {
+  const summary = document.getElementById('notam-summary');
+  const table = document.getElementById('notam-table');
+  const tbody = document.getElementById('notam-rows');
+  try {
+    const r = await fetch(NOTAM_API);
+    const d = await r.json();
+    const tfrs = d.tfrs || [];
+    const counts = {};
+    const states = new Set();
+    tfrs.forEach(t => {
+      counts[t.type || 'OTHER'] = (counts[t.type || 'OTHER'] || 0) + 1;
+      if (t.state) states.add(t.state);
+    });
+    const sortedTypes = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    summary.innerHTML = `
+      <h3>${tfrs.length} active TFRs across ${states.size} states</h3>
+      <p>${sortedTypes.map(([t, n]) => `
+        <span class="notam-pill" style="background:${NOTAM_COLORS[t] || '#94a3b8'}">
+          ${escapeHtml(t)} · ${n}
+        </span>`).join(' ')}
+      </p>
+      <p class="notam-tot">Updated ${new Date(d.last_updated).toLocaleString()}</p>
+    `;
+
+    tbody.innerHTML = tfrs.map(t => {
+      const color = NOTAM_COLORS[t.type] || '#94a3b8';
+      const mod = t.last_modified ? new Date(t.last_modified).toLocaleString() : '—';
+      return `
+        <tr>
+          <td><code>${escapeHtml(t.notam_id)}</code></td>
+          <td><span class="notam-pill" style="background:${color}">${escapeHtml(t.type || '—')}</span></td>
+          <td>${escapeHtml(t.state || '—')}</td>
+          <td style="max-width:340px">${escapeHtml(t.title)}</td>
+          <td style="white-space:nowrap;color:var(--text-muted);font-size:0.75rem">${mod}</td>
+        </tr>
+      `;
+    }).join('');
+    table.style.display = '';
+  } catch (e) {
+    summary.innerHTML = `<h3>Feed unavailable</h3><p>${escapeHtml(String(e))}</p>`;
+  }
+}
+
+loadNotams();
+setInterval(loadNotams, 900000);  // 15 min
+</script>
 
 <footer>
   <a href="index.html">Home</a> &middot; <a href="map.html">Live Map</a> &middot; <a href="dag.html">Causal DAG</a> &middot; <a href="architecture.html">Architecture</a> &middot; SpeckTech Inc.
