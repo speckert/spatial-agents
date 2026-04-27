@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Privacy by Design — Spatial Agents</title>
+<!--
+  Version History:
+      0.1.0  2026-03-30  Initial privacy page
+      0.2.0  2026-04-26  Outbound Connections expanded — added NWS
+                         (api.weather.gov), FAA TFR (tfr.faa.gov),
+                         and Nominatim geocoder (nominatim.openstreet
+                         map.org, on swap only) — Claude 4.7
+-->
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -126,6 +134,9 @@
   <h3>Outbound Connections</h3>
   <p><strong>AIS feed:</strong> WebSocket connection to aisstream.io — sends your API key and bounding box subscription. Receives vessel positions.</p>
   <p><strong>ADS-B feed:</strong> HTTPS requests to OpenSky Network — sends bounding box coordinates. Receives aircraft states.</p>
+  <p><strong>Severe weather:</strong> HTTPS requests to <code>api.weather.gov</code> (NWS) — receives active CONUS weather alerts (CAP / GeoJSON). No identifying information sent.</p>
+  <p><strong>Airspace restrictions:</strong> HTTPS requests to <code>tfr.faa.gov</code> — receives active FAA Temporary Flight Restriction polygons. No identifying information sent.</p>
+  <p><strong>Region geocoding:</strong> When you swap the active region to a new city, the typed city name is sent to <code>nominatim.openstreetmap.org</code> (OpenStreetMap's geocoder) so the server can resolve it to coordinates. Sent only on swap, not continuously.</p>
   <p><strong>Nothing else.</strong> No analytics, no crash reports, no usage metrics, no telemetry of any kind.</p>
 </div>
 

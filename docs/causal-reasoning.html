@@ -10,6 +10,15 @@
       0.2.0  2026-04-25  Live NWS weather alerts and FAA TFRs as
                          exogenous roots; /api/causal/layer endpoint;
                          updated event-type table — Claude 4.7
+      0.3.0  2026-04-26  Reframed as an active research direction
+                         rather than a shipped feature. Vessel-
+                         loitering detector + its outgoing edges
+                         removed (was firing on every moored
+                         vessel in dense ports — visual clutter
+                         without insight). Added explicit note
+                         that output quality is bounded by the
+                         breadth of ingested sources
+                         — Claude 4.7
 -->
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -89,9 +98,15 @@
 <div class="icon">&#x1F517;</div>
 <h1>Causal <em>Reasoning</em></h1>
 <p class="lead">
-  Beyond pattern detection, Spatial Agents builds structural causal models
-  that explain <em>why</em> events happen — using Judea Pearl's SCM framework
-  and do-calculus for counterfactual reasoning.
+  Causal reasoning is an active research direction at SpeckTech rather
+  than a finished feature. The goal: build structural causal models
+  (Judea Pearl's SCM framework, with do-calculus for counterfactuals)
+  that explain <em>why</em> a pattern emerged, not just <em>that</em> it
+  did. The page below describes the current prototype — what nodes the
+  graph contains, which edges the rule base encodes, and how the
+  intervention engine works. Output quality is bounded by the breadth
+  of sources we ingest; expanding the source set is the main lever
+  we're pulling, and the rule base will grow with it.
 </p>
 
 <h2>The Pipeline</h2>
@@ -118,7 +133,6 @@
   <tr><th>Event Type</th><th>Domain</th><th>Source / Detection Logic</th></tr>
   <tr><td>Weather Alert</td><td>Weather</td><td><em>Exogenous</em> — NWS active alerts (Severe / Extreme), one node per alert polygon</td></tr>
   <tr><td>TFR Active</td><td>Airspace</td><td><em>Exogenous</em> — FAA Temporary Flight Restrictions, one node per active TFR</td></tr>
-  <tr><td>Vessel Loitering</td><td>Maritime</td><td>Speed &lt; 2.0 knots across multiple AIS reports in the rolling window</td></tr>
   <tr><td>Dark Vessel Gap</td><td>Maritime</td><td>&gt; 15 minutes of silence in track history</td></tr>
   <tr><td>Density Anomaly</td><td>Maritime / Aviation</td><td>Z-score &ge; 2.0 vs. historical baseline</td></tr>
   <tr><td>Ground Stop Indicator</td><td>Aviation</td><td>&gt; 70% of aircraft on ground (min 5)</td></tr>
@@ -137,7 +151,6 @@
 </p>
 <table>
   <tr><th>Cause (root)</th><th>Effect</th><th>Mechanism</th></tr>
-  <tr><td>weather_alert</td><td>vessel_loitering</td><td>Severe weather drives vessels to anchor or reduce speed</td></tr>
   <tr><td>weather_alert</td><td>ground_stop_indicator</td><td>Severe weather triggers airport ground stops</td></tr>
   <tr><td>weather_alert</td><td>density_anomaly_high</td><td>Weather-driven delays back up vessels and aircraft into dense clusters</td></tr>
   <tr><td>tfr_active</td><td>density_anomaly_low</td><td>Active TFR voids the affected airspace of normal traffic</td></tr>
@@ -160,8 +173,9 @@
 <h2>Step 3: Counterfactual Interventions</h2>
 <p>
   Pearl's do-operator enables "what if" reasoning. Given a causal graph, the
-  intervention engine can answer questions like: "If the weather event had not
-  occurred, would the loitering still have happened?"
+  intervention engine can answer questions like: "If the active TFR were not
+  in place, would the density anomaly in the adjacent corridor still have
+  emerged?"
 </p>
 <div class="info-card">
   <h3>How It Works</h3>

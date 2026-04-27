@@ -21,10 +21,16 @@ Version History:
                        causal DAG against live Midwest weather (NWS
                        alerts on Lake Michigan corridor + ORD/MDW
                        traffic) — Claude 4.7
+    0.9.0  2026-04-26  Runtime-mutable ACTIVE_REGIONS + regions_version()
+                       content-hash helper. Slot 0 pinned to san_francisco;
+                       slot 1 swappable via RegionsManager. Default slot 1
+                       on first run is boston (chicago kept in seed centers
+                       for backward compat) — Claude 4.7
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 from enum import Enum
 
@@ -97,6 +103,23 @@ REGION = REGIONS[REGION_NAME]
 
 # Per-region advisories — shown to clients via /health coverage response
 REGION_ADVISORIES: dict[str, list[str]] = {}
+
+
+def regions_version() -> str:
+    """Short content-hash of the current ACTIVE_REGIONS list.
+
+    Returned as an 8-char hex string. Stable across server restarts
+    (no persisted counter needed) — the same active set always yields
+    the same version, and any change yields a new value. Order matters:
+    swapping slot 1 produces a new version; reordering slots also does.
+
+    Clients call /health once at startup, cache this value, and compare
+    it to the `regions_version` field on every subsequent region-aware
+    response. On mismatch, the client re-fetches /health to pick up the
+    new region list.
+    """
+    payload = "|".join(ACTIVE_REGIONS).encode("utf-8")
+    return hashlib.sha1(payload).hexdigest()[:8]
 
 
 class FeedConfig(BaseModel):

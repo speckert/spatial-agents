@@ -11,6 +11,9 @@
                          (1 primary + 6 buffer cells), H3 hex
                          visualization recipe, /health endpoint
                          — Claude 4.7
+      0.3.0  2026-04-26  Runtime region swap section — frames slot-1
+                         mutation as the lever that keeps AIS bbox
+                         and ADS-B poll budgets bounded — Claude 4.7
 -->
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -140,11 +143,37 @@
   visual hierarchy: solid outline for the primary, dashed for buffers.
 </p>
 <p>
-  The active set is configured as a list — currently
+  The active set is configured as a list — typically two slots, e.g.
   <code>["san_francisco", "chicago"]</code> — and the AIS subscription, ADS-B
   poll, NWS alert filter, and FAA TFR tagging all derive their geographic
-  filters from this single source. Adding a region is a one-line change.
+  filters from this single source.
 </p>
+
+<h2>Runtime Region Swap</h2>
+<p>
+  Slot 0 is pinned to <code>san_francisco</code> (legacy v3.1 client contract).
+  Slot 1 is mutable at runtime via <code>POST /regions/swap</code> — the server
+  geocodes a city name through Nominatim, snaps the resulting lat/lng to the
+  nearest res-4 H3 cell, computes the 7-cell tile, and atomically updates the
+  active set. AIS reconnects with the new bbox union, ADS-B picks up the new
+  region in its next rotation, and per-region caches are purged.
+</p>
+<div class="info-card">
+  <h3>Why mutate at runtime instead of just adding more regions?</h3>
+  <p><strong>AIS budget.</strong> aisstream.io's free tier subscribes to a
+     single bbox set; every additional region widens the union and increases
+     the inbound message rate. Two regions is a comfortable steady state —
+     ten would saturate the connection and force us into a paid tier.</p>
+  <p><strong>ADS-B budget.</strong> OpenSky's free tier rate-limits per-IP.
+     Each active region adds ~1 poll per 45 s rotation slot, so N regions
+     means each region is polled every <code>45 × N</code> seconds. Past
+     three or four regions, freshness degrades faster than users tolerate.</p>
+  <p><strong>The swap pattern is the answer.</strong> Keep the active set
+     small (slot 0 + slot 1), and let users pivot slot 1 to whatever city
+     they care about right now. A 112-second cooldown between swaps prevents
+     thrashing the upstream feeds.</p>
+</div>
+
 <div class="info-card">
   <h3>Visualization Pattern</h3>
   <p><strong>Render hexes as polygons</strong> using <code>h3_cell_to_boundary</code>,
@@ -164,6 +193,8 @@
 <table>
   <tr><th>Endpoint</th><th>Returns</th></tr>
   <tr><td><code>/health</code></td><td>Per-region geometry (GeoJSON MultiPolygon), primary cell, buffer cells, H3 sample sets, advisories</td></tr>
+  <tr><td><code>POST /regions/swap</code></td><td>Replace slot 1 with a new city. Server geocodes, computes the 7-cell tile, updates feeds. 112 s cooldown.</td></tr>
+  <tr><td><code>/regions</code></td><td>Diagnostic snapshot: active list, version hash, cooldown remaining</td></tr>
   <tr><td><code>/api/tiles/info/{h3_cell}</code></td><td>Cell metadata, center, boundary, neighbors</td></tr>
   <tr><td><code>/api/tiles/bbox</code></td><td>All cells within a bounding box</td></tr>
   <tr><td><code>/api/tiles/position</code></td><td>Cell IDs for a lat/lng at all resolutions</td></tr>

@@ -116,6 +116,20 @@
   }
   td:last-child { text-align: right; color: var(--accent-cyan); }
 
+  /* Region-swap table — left-aligned everything (no count column) */
+  table.swap-table td:last-child { text-align: left; color: var(--text-muted); }
+  table.swap-table td.swap-status-success { color: var(--accent-green); }
+  table.swap-table td.swap-status-rate_limited { color: var(--accent-amber); }
+  table.swap-table td.swap-status-swap_refused { color: var(--accent-amber); }
+  table.swap-table td.swap-status-geocode_failed { color: #fb7185; }
+  table.swap-table td.swap-status-error { color: #fb7185; }
+  table.swap-table td.swap-city { color: var(--text-primary); }
+  table.swap-table td.swap-region { color: var(--accent-cyan); }
+  .swap-empty {
+    font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted);
+    text-align: center; padding: 1.5rem 0;
+  }
+
   .tables { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
 
   .status { font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted); text-align: center; margin-top: 0.5rem; }
@@ -207,6 +221,24 @@
     </div>
   </div>
 
+  <div class="panel">
+    <div class="panel-title">Region Swaps — Most Recent 100</div>
+    <table id="swaps-table" class="swap-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>City Typed</th>
+          <th>Region Key</th>
+          <th>Status</th>
+          <th>IP</th>
+          <th>Host / Location</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div id="swaps-empty" class="swap-empty" style="display:none">No region-swap attempts logged yet.</div>
+  </div>
+
   <div class="status" id="status">Loading...</div>
 </div>
 
@@ -273,8 +305,67 @@ async function refresh() {
   }
 }
 
-refresh();
-setInterval(refresh, 30000);
+// Format a UTC ISO timestamp as the local-time short form used elsewhere.
+function fmtTime(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString([], {
+      month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+  } catch (_) { return iso; }
+}
+
+// HTML-escape a string. Region names and city inputs are user-supplied,
+// so the dashboard never trusts them as raw HTML.
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+async function refreshSwaps() {
+  try {
+    const res = await fetch(`${API}/stats/swaps?limit=100`);
+    const d = await res.json();
+    const tbody = document.querySelector('#swaps-table tbody');
+    const empty = document.getElementById('swaps-empty');
+    const entries = d.entries || [];
+    if (entries.length === 0) {
+      tbody.innerHTML = '';
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+    tbody.innerHTML = entries.map(e => {
+      const loc = [e.city_geo, e.country_code].filter(Boolean).join(', ');
+      const hostLoc = [e.host, loc].filter(Boolean).join(' · ') || '—';
+      const region = e.region_key || '—';
+      const statusClass = `swap-status-${esc(e.status || 'error')}`;
+      const errSuffix = e.error ? ` <span style="color:var(--text-muted);font-size:0.65rem">(${esc(e.error)})</span>` : '';
+      return `<tr>
+        <td>${esc(fmtTime(e.ts))}</td>
+        <td class="swap-city">${esc(e.city)}</td>
+        <td class="swap-region">${esc(region)}</td>
+        <td class="${statusClass}">${esc(e.status)}${errSuffix}</td>
+        <td>${esc(e.ip)}</td>
+        <td>${esc(hostLoc)}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    // Don't blow up the rest of the dashboard if /stats/swaps fails.
+    console.error('Swap log fetch failed:', e);
+  }
+}
+
+function refreshAll() {
+  refresh();
+  refreshSwaps();
+}
+
+refreshAll();
+setInterval(refreshAll, 30000);
 </script>
 </body>
 </html>

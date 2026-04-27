@@ -24,6 +24,11 @@ Version History:
     0.1.1  2026-03-28  Added __main__.py for python -m spatial_agents support,
                        updated usage documentation
     0.1.2  2026-03-28  Updated banner to SpeckTech Inc.
+    0.2.0  2026-04-26  Wires up RegionsManager — initializes from
+                       data/regions_state.json before feeds start, registers
+                       FeedManager.handle_region_swap as a swap callback, and
+                       injects the manager into routes_regions so POST
+                       /regions/swap is live. — Claude 4.7
 """
 
 from __future__ import annotations
@@ -60,10 +65,22 @@ async def run_pipeline(config: SpatialAgentsConfig) -> None:
 
     # Late imports to avoid circular dependencies
     from spatial_agents.ingest.feed_manager import FeedManager
+    from spatial_agents.regions import RegionsManager
     from spatial_agents.spatial.tile_builder import TileBuilder
     from spatial_agents.serving.routes_api import set_feed_manager as set_api_feeds
-    from spatial_agents.serving.routes_health import set_feed_manager as set_health_feeds
-    from spatial_agents.serving.routes_stats import set_feed_manager as set_stats_feeds
+    from spatial_agents.serving.routes_health import (
+        set_feed_manager as set_health_feeds,
+        set_regions_manager as set_health_regions,
+    )
+    from spatial_agents.regions.swap_log import SwapLog
+    from spatial_agents.serving.routes_regions import (
+        set_regions_manager,
+        set_swap_log as set_regions_swap_log,
+    )
+    from spatial_agents.serving.routes_stats import (
+        set_feed_manager as set_stats_feeds,
+        set_swap_log as set_stats_swap_log,
+    )
     from spatial_agents.serving.routes_tfr import set_feed_manager as set_tfr_feeds
     from spatial_agents.serving.routes_weather import set_feed_manager as set_weather_feeds
 
@@ -71,12 +88,29 @@ async def run_pipeline(config: SpatialAgentsConfig) -> None:
     feed_manager = FeedManager()
     tile_builder = TileBuilder(output_dir=config.tiling.tile_output_dir)
 
+    # RegionsManager: load persisted slot-1 (if any) and seed ACTIVE_REGIONS
+    # *before* feeds start, so the AIS subscription and ADS-B poll loop come
+    # up bound to the right bboxes from frame 1.
+    regions_manager = RegionsManager(
+        state_path=config.data_dir / "regions_state.json",
+    )
+    regions_manager.initialize()
+    regions_manager.on_swap(feed_manager.handle_region_swap)
+
+    # SwapLog: append-only audit trail of /regions/swap attempts.
+    # Surfaced via /stats/swaps for the logs.html dashboard.
+    swap_log = SwapLog(log_path=config.data_dir / "swap_log.jsonl")
+
     # Wire up feed manager to API routes
     set_api_feeds(feed_manager)
     set_health_feeds(feed_manager)
     set_stats_feeds(feed_manager)
     set_weather_feeds(feed_manager)
     set_tfr_feeds(feed_manager)
+    set_regions_manager(regions_manager)
+    set_health_regions(regions_manager)
+    set_regions_swap_log(swap_log)
+    set_stats_swap_log(swap_log)
 
     # Register tile-building callback on new records
     def on_new_data_batch() -> None:

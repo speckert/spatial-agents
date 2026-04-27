@@ -33,6 +33,23 @@ Version History:
                        the rolling buffer, for detectors that need
                        multiple observations per vessel (loitering,
                        dark-gap) — Claude 4.7
+    0.11.0 2026-04-26  handle_region_swap() — async callback registered
+                       on RegionsManager. Reconnects AIS WebSocket so
+                       the new region's bbox is subscribed, kicks off
+                       an immediate ADS-B fetch of the new region, and
+                       purges vessel/aircraft cache entries that fell
+                       in the removed region's H3 cells (so legacy
+                       unfiltered /vessels stops returning ghosts) —
+                       Claude 4.7
+    0.11.1 2026-04-26  Fix ADS-B poll loop closure bug — region_bboxes
+                       was captured ONCE at loop entry, so after a swap
+                       the steady-state poll kept hitting the old slot 1
+                       forever (and continuously refilled the stale-cache
+                       that handle_region_swap had just purged).
+                       Re-resolve ACTIVE_REGIONS each iteration. Also
+                       reset polled_regions on active-set change so the
+                       new region gets the warmup tempo until polled
+                       once — Claude 4.7
 """
 
 from __future__ import annotations
@@ -44,7 +61,7 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Callable
 
-from spatial_agents.config import ACTIVE_REGIONS, REGIONS, config
+from spatial_agents.config import ACTIVE_REGIONS, REGION_CELLS, REGIONS, config
 from spatial_agents.ingest.adsb_parser import ADSBParser
 from spatial_agents.ingest.ais_parser import AISParser
 from spatial_agents.ingest.aisstream_client import AISStreamClient
@@ -126,6 +143,9 @@ class FeedManager:
         # Control
         self._running = False
         self._tasks: list[asyncio.Task] = []
+        # Tracked separately so a region swap can cancel + restart the
+        # AIS socket without taking down the whole feed manager.
+        self._ais_task: asyncio.Task | None = None
 
         # Callbacks for downstream processing
         self._vessel_callbacks: list[Callable[[VesselRecord], None]] = []
@@ -250,9 +270,10 @@ class FeedManager:
         ]
         # Start AIS WebSocket if API key is configured
         if config.feeds.ais_api_key:
-            self._tasks.append(
-                asyncio.create_task(self._ais_websocket_loop(), name="ais_ws")
+            self._ais_task = asyncio.create_task(
+                self._ais_websocket_loop(), name="ais_ws",
             )
+            self._tasks.append(self._ais_task)
             logger.info("AIS WebSocket feed enabled")
         else:
             logger.warning(
@@ -363,16 +384,38 @@ class FeedManager:
         """
         interval = config.feeds.adsb_poll_interval_sec
         warmup_interval = 5  # seconds between initial per-region polls
-        region_bboxes = [(name, REGIONS[name]) for name in ACTIVE_REGIONS]
         logger.info(
             "ADS-B poll loop started — interval: %ds, warmup: %ds, regions: %s",
-            interval, warmup_interval, [r[0] for r in region_bboxes],
+            interval, warmup_interval, list(ACTIVE_REGIONS),
         )
         idx = 0
         polled_regions: set[str] = set()
+        last_active: tuple[str, ...] = ()
 
         while self._running:
             try:
+                # Re-resolve every iteration so a /regions/swap that mutates
+                # ACTIVE_REGIONS takes effect on the very next poll instead of
+                # waiting for a process restart. (Prior versions captured this
+                # once at loop entry — that's the bug that left the poll loop
+                # polling the OLD slot 1 forever after a swap, continuously
+                # refilling the cache handle_region_swap had just purged.)
+                region_bboxes = [(name, REGIONS[name]) for name in ACTIVE_REGIONS]
+                if not region_bboxes:
+                    await asyncio.sleep(warmup_interval)
+                    continue
+                current_active = tuple(name for name, _ in region_bboxes)
+                if current_active != last_active:
+                    if last_active:
+                        logger.info(
+                            "ADS-B poll loop active set changed: %s → %s",
+                            list(last_active), list(current_active),
+                        )
+                    # Reset rotation + warmup so the new region gets the fast
+                    # 5s warmup tempo until it has been polled at least once.
+                    polled_regions = polled_regions & set(current_active)
+                    idx = 0
+                    last_active = current_active
                 region_name, bbox = region_bboxes[idx % len(region_bboxes)]
                 records = await self._adsb_parser.fetch_region(bbox)
                 now = datetime.now(timezone.utc)
@@ -527,6 +570,143 @@ class FeedManager:
                 logger.error("FAA TFR poll error: %s", exc)
 
             await asyncio.sleep(self._TFR_POLL_INTERVAL_SEC)
+
+    # --- Region Swap Handler ---
+
+    async def handle_region_swap(
+        self,
+        old_region: str | None,
+        new_region: str,
+    ) -> None:
+        """Refresh feeds + caches after RegionsManager swaps slot 1.
+
+        Steps (run sequentially, but quickly):
+
+          1. Purge vessel/aircraft cache entries whose res-4 cell falls
+             inside the *removed* region's 7-cell tile. Keeps legacy
+             /vessels and /aircraft (no ?region=) from returning ghosts
+             from a region that's no longer subscribed. Slot 0 (SF) is
+             never touched since it's pinned for legacy iOS 3.1.
+          2. Cancel the AIS WebSocket task and start a new one. The
+             aisstream client resolves bboxes at connect time, so the
+             new subscription picks up the new region automatically.
+          3. Kick off an immediate ADS-B fetch of the new region so
+             the cache repopulates within seconds instead of waiting
+             for the next steady-state poll.
+
+        Errors are logged but do not propagate — a swap should never
+        leave the manager in a half-restarted state.
+        """
+        logger.info(
+            "Region swap received — old: %s, new: %s; refreshing feeds + caches",
+            old_region, new_region,
+        )
+
+        # 1. Purge stale entries from removed region.
+        if old_region is not None:
+            try:
+                self._purge_region_cache(old_region)
+            except Exception as exc:
+                logger.error("Region swap cache purge failed: %s", exc)
+
+        # 2. Restart AIS WebSocket so new bbox is subscribed.
+        try:
+            await self._restart_ais_socket()
+        except Exception as exc:
+            logger.error("Region swap AIS restart failed: %s", exc)
+
+        # 3. Immediate ADS-B fetch of new region.
+        try:
+            await self._fetch_region_adsb_now(new_region)
+        except Exception as exc:
+            logger.error("Region swap immediate ADS-B fetch failed: %s", exc)
+
+    def _purge_region_cache(self, region: str) -> None:
+        """Drop vessels + aircraft whose res-4 cell falls in `region`'s tile."""
+        cells = REGION_CELLS.get(region)
+        if cells is None:
+            logger.debug("Cache purge skipped — region %s not registered", region)
+            return
+        purge_set = set(cells["all"])  # type: ignore[arg-type]
+
+        v_drop = [
+            mmsi for mmsi, rec in self._vessel_latest.items()
+            if rec.h3_cells.get(4) in purge_set
+        ]
+        for mmsi in v_drop:
+            self._vessel_latest.pop(mmsi, None)
+            self._vessel_tracks.pop(mmsi, None)
+
+        a_drop = [
+            icao for icao, rec in self._aircraft_latest.items()
+            if rec.h3_cells.get(4) in purge_set
+        ]
+        for icao in a_drop:
+            self._aircraft_latest.pop(icao, None)
+            self._aircraft_tracks.pop(icao, None)
+            self._aircraft_phase.pop(icao, None)
+
+        logger.info(
+            "Cache purge for region %s — vessels dropped: %d, aircraft dropped: %d",
+            region, len(v_drop), len(a_drop),
+        )
+
+    async def _restart_ais_socket(self) -> None:
+        """Cancel + relaunch the AIS WebSocket task so it reconnects.
+
+        No-op if AIS is disabled (no API key) or if the task isn't running.
+        """
+        if not config.feeds.ais_api_key:
+            return
+        if self._ais_task is not None and not self._ais_task.done():
+            self._ais_task.cancel()
+            try:
+                await self._ais_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            # Remove the cancelled task from the tracked list.
+            try:
+                self._tasks.remove(self._ais_task)
+            except ValueError:
+                pass
+
+        if self._running:
+            self._ais_task = asyncio.create_task(
+                self._ais_websocket_loop(), name="ais_ws",
+            )
+            self._tasks.append(self._ais_task)
+            logger.info("AIS WebSocket relaunched after region swap")
+
+    async def _fetch_region_adsb_now(self, region: str) -> None:
+        """One-shot ADS-B fetch for `region` so the cache fills immediately."""
+        bbox = REGIONS.get(region)
+        if bbox is None:
+            logger.debug("Immediate ADS-B fetch skipped — region %s missing bbox", region)
+            return
+
+        records = await self._adsb_parser.fetch_region(bbox)
+        now = datetime.now(timezone.utc)
+        self._adsb_last_msg = now
+        self._adsb_error = None
+
+        for record in records:
+            self._adsb_msg_count += 1
+            record.flight_phase = self._resolve_phase(
+                record.icao24, record.flight_phase,
+            )
+            self._aircraft_buffer.append(record)
+            self._aircraft_latest[record.icao24] = record
+            self._update_track(
+                self._aircraft_tracks, record.icao24,
+                record.position.lng, record.position.lat,
+            )
+            for cb in self._aircraft_callbacks:
+                cb(record)
+
+        logger.info(
+            "Immediate ADS-B fetch [%s] after region swap: %d aircraft",
+            region, len(records),
+        )
 
     # --- AIS WebSocket Loop ---
 

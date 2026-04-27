@@ -13,6 +13,11 @@ Version History:
     0.4.0  2026-04-09  Bbox driven by centralized REGION in config.py
     0.5.0  2026-04-24  Multi-region bboxes from ACTIVE_REGIONS for
                        simultaneous SF + Persian Gulf — Claude Opus 4.6
+    0.6.0  2026-04-26  Bboxes resolved at connect time (not at import) so
+                       a runtime region swap is reflected on next AIS
+                       reconnect. Subscription helper inlined into the
+                       client so the live bbox list is the source of
+                       truth — Claude 4.7
 """
 
 from __future__ import annotations
@@ -44,11 +49,23 @@ _AIS_TYPE_MAP: dict[range, VesselType] = {
     range(40, 50): VesselType.HIGH_SPEED,
 }
 
-# Bboxes in AISStream format: [[lat_min, lng_min], [lat_max, lng_max]]
-REGION_BBOXES = [
-    [[REGIONS[r][0], REGIONS[r][2]], [REGIONS[r][1], REGIONS[r][3]]]
-    for r in ACTIVE_REGIONS
-]
+def current_region_bboxes() -> list[list[list[float]]]:
+    """Build AISStream-format bboxes from the current ACTIVE_REGIONS.
+
+    Resolved on every call so a runtime region swap takes effect on
+    the next reconnect. Format: [[lat_min, lng_min], [lat_max, lng_max]].
+    """
+    return [
+        [[REGIONS[r][0], REGIONS[r][2]], [REGIONS[r][1], REGIONS[r][3]]]
+        for r in ACTIVE_REGIONS
+        if r in REGIONS
+    ]
+
+
+# Backward-compat alias — module-level snapshot used only by callers that
+# import REGION_BBOXES directly. Internal client logic uses the live
+# helper above so a swap is honored on reconnect.
+REGION_BBOXES = current_region_bboxes()
 
 
 def _classify_vessel_type(ais_type: int | None) -> VesselType:
@@ -76,10 +93,15 @@ def _build_subscription(
     api_key: str,
     bounding_boxes: list[list[list[float]]] | None = None,
 ) -> str:
-    """Build the aisstream.io subscription message."""
+    """Build the aisstream.io subscription message.
+
+    If `bounding_boxes` is None, resolves the current ACTIVE_REGIONS at
+    call time so a runtime swap is picked up on the next subscription.
+    """
+    boxes = bounding_boxes if bounding_boxes is not None else current_region_bboxes()
     return json.dumps({
         "APIKey": api_key,
-        "BoundingBoxes": bounding_boxes or REGION_BBOXES,
+        "BoundingBoxes": boxes,
         "FilterMessageTypes": ["PositionReport", "ShipStaticData"],
     })
 
@@ -105,10 +127,21 @@ class AISStreamClient:
     ) -> None:
         self._api_key = api_key or config.feeds.ais_api_key
         self._endpoint = endpoint or "wss://stream.aisstream.io/v0/stream"
-        self._bounding_boxes = bounding_boxes or REGION_BBOXES
+        # Pinned bbox list overrides the live ACTIVE_REGIONS lookup. When
+        # None, stream() resolves the current ACTIVE_REGIONS at connect
+        # time so a runtime region swap is picked up after reconnect.
+        self._bounding_boxes = bounding_boxes
         self._static_data: dict[str, dict[str, Any]] = {}  # MMSI → static info
         self._message_count = 0
         self._error_count = 0
+
+    def current_bboxes(self) -> list[list[list[float]]]:
+        """Bboxes used on the next connect — pinned override or live ACTIVE_REGIONS."""
+        return (
+            self._bounding_boxes
+            if self._bounding_boxes is not None
+            else current_region_bboxes()
+        )
 
     @property
     def stats(self) -> dict[str, int]:
@@ -132,7 +165,10 @@ class AISStreamClient:
                 "Get a free key at https://aisstream.io"
             )
 
-        subscription = _build_subscription(self._api_key, self._bounding_boxes)
+        # Resolve bboxes at connect time (not __init__) so a runtime
+        # region swap is reflected on the next reconnect.
+        bboxes = self.current_bboxes()
+        subscription = _build_subscription(self._api_key, bboxes)
 
         async with websockets.connect(self._endpoint) as ws:
             await ws.send(subscription)
@@ -140,7 +176,7 @@ class AISStreamClient:
                 "AISStream connected — endpoint: %s, bboxes: %d, "
                 "subscription: %s",
                 self._endpoint,
-                len(self._bounding_boxes),
+                len(bboxes),
                 subscription,
             )
 
@@ -159,7 +195,7 @@ class AISStreamClient:
                         "Subscription: endpoint=%s, bboxes=%s, "
                         "filter=%s, api_key=%s...%s",
                         self._endpoint,
-                        self._bounding_boxes,
+                        bboxes,
                         ["PositionReport", "ShipStaticData"],
                         self._api_key[:4] if self._api_key else "NONE",
                         self._api_key[-4:] if self._api_key else "",

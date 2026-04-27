@@ -3,6 +3,9 @@ Stats Routes — Server traffic metrics from Apache access log.
 
 Version History:
     0.1.0  2026-04-09  Initial stats endpoint with 24-hour traffic metrics
+    0.2.0  2026-04-26  /stats/swaps endpoint surfacing the region-swap
+                       audit log (data/swap_log.jsonl) — drives the
+                       "Region Swaps" panel on logs.html — Claude 4.7
 """
 
 from __future__ import annotations
@@ -22,12 +25,19 @@ router = APIRouter()
 
 _server_started = datetime.now(timezone.utc)
 _feed_manager = None
+_swap_log: Any = None
 
 
 def set_feed_manager(manager: Any) -> None:
     """Set the feed manager reference (called during app startup)."""
     global _feed_manager
     _feed_manager = manager
+
+
+def set_swap_log(swap_log: Any) -> None:
+    """Set the swap log reference (called during app startup)."""
+    global _swap_log
+    _swap_log = swap_log
 
 ACCESS_LOG = Path("/private/var/log/apache2/spatialagents-access_log")
 SPECKTECH_ACCESS_LOG = Path("/private/var/log/apache2/specktech-access_log")
@@ -519,4 +529,44 @@ async def get_specktech_stats(
             {"ip": ip, "host": _reverse_dns(ip), **_geoip_lookup(ip), "count": c}
             for ip, c in top_visitors
         ],
+    }
+
+
+@router.get("/stats/swaps")
+async def get_swap_log(
+    limit: int = Query(default=200, ge=1, le=2000,
+                       description="Most recent N entries to return"),
+):
+    """Return the most recent /regions/swap attempts.
+
+    Each entry includes the user-typed city string (raw, possibly
+    non-ASCII), the resolved region key (null on failures that never
+    got to normalization), the client IP enriched with reverse DNS +
+    geo lookup, the status (success / rate_limited / swap_refused /
+    geocode_failed), and any error message.
+
+    Drives the "Region Swaps" panel on logs.html.
+    """
+    if _swap_log is None:
+        return {"entries": [], "total": 0}
+
+    raw = _swap_log.read_recent(limit=limit)
+
+    # Enrich each entry with reverse DNS + geo. Cached so repeated IPs
+    # are essentially free.
+    enriched = []
+    for e in raw:
+        ip = e.get("ip", "")
+        geo = _geoip_lookup(ip) if ip and ip != "unknown" else {}
+        enriched.append({
+            **e,
+            "host": _reverse_dns(ip) if ip and ip != "unknown" else "",
+            "country": geo.get("country", ""),
+            "country_code": geo.get("country_code", ""),
+            "city_geo": geo.get("city", ""),
+        })
+
+    return {
+        "entries": enriched,
+        "total": len(enriched),
     }

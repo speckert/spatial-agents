@@ -29,7 +29,7 @@ function compactVesselLabel(label) {
 }
 
 function shortId(fullId) {
-  // chicago::e6_vessel_loitering -> e6
+  // chicago::e6_dark_vessel_gap -> e6
   const m = fullId.match(/::([a-z]\d+)/);
   return m ? m[1] : fullId.slice(0, 6);
 }

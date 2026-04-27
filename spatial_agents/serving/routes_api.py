@@ -22,6 +22,20 @@ Version History:
                        rolling buffer (get_recent_vessels) instead of
                        the latest-snapshot map, so loitering / dark-gap
                        detectors have enough observations — Claude 4.7
+    0.7.0  2026-04-26  All region-aware responses (/vessels, /aircraft,
+                       /causal/layer) now stamp regions_version so
+                       clients can detect a runtime region swap and
+                       re-fetch /health — Claude 4.7
+    0.8.0  2026-04-26  Legacy contract: /vessels and /aircraft with no
+                       ?region= now default to san_francisco (the pinned
+                       slot-0 / legacy region) instead of returning all
+                       active regions. Reason: v3.1 clients have no UI
+                       awareness of slot 1 — when slot 1 was Chicago or
+                       NY, v3.1's SF map suddenly showed midwest/east-
+                       coast aircraft. Slot 0 is pinned to SF precisely
+                       to be the legacy region; this completes that
+                       contract. v4 always sends ?region= and is
+                       unaffected — Claude 4.7
 """
 
 from __future__ import annotations
@@ -36,7 +50,13 @@ from spatial_agents.causal.dag_builder import DAGBuilder
 from spatial_agents.causal.event_detector import EventDetector
 from spatial_agents.causal.graph_serializer import GraphSerializer
 from spatial_agents.causal.intervention import InterventionEngine
-from spatial_agents.config import ACTIVE_REGIONS, REGION_CELLS
+from spatial_agents.config import ACTIVE_REGIONS, REGION_CELLS, regions_version
+
+# The "legacy region" — what an unfiltered /vessels or /aircraft request
+# resolves to. Matches RegionsManager.PINNED_SLOT_ZERO. Hard-coded here
+# rather than imported to avoid a serving→regions module dependency; if
+# the pin ever moves, both constants must move together.
+LEGACY_REGION = "san_francisco"
 from spatial_agents.intelligence.token_budget import TokenBudgetManager
 from spatial_agents.models import (
     AircraftResponse,
@@ -95,21 +115,30 @@ def _region_cell_set(region: str) -> set[str] | None:
 async def get_all_vessels(
     region: str | None = Query(
         default=None,
-        description="Optional region name (e.g. san_francisco, boston) — "
-                    "filters vessels to those in the region's 7-cell H3 tile. "
-                    "Absent = all active regions.",
+        description="Region name (e.g. san_francisco, boston) — filters "
+                    "vessels to those in the region's 7-cell H3 tile. "
+                    f"Absent = legacy contract (defaults to {LEGACY_REGION}, "
+                    "the pinned slot-0 region). v4 clients should always "
+                    "send this explicitly.",
     ),
 ) -> VesselResponse:
-    """Return all live vessel positions, optionally filtered to one region."""
+    """Return live vessel positions for one region.
+
+    Legacy v3.1 clients call without ?region= and get the slot-0 region
+    (san_francisco). v4 clients always send ?region=<key>.
+    """
     if _feed_manager is None:
         raise HTTPException(503, "Feed manager not initialized")
 
-    vessels = _feed_manager.get_latest_vessels()
-    if region is not None:
-        cell_set = _region_cell_set(region)
-        if cell_set is None:
-            raise HTTPException(400, f"Unknown region: {region}")
-        vessels = [v for v in vessels if v.h3_cells.get(4) in cell_set]
+    effective_region = region if region is not None else LEGACY_REGION
+    cell_set = _region_cell_set(effective_region)
+    if cell_set is None:
+        raise HTTPException(400, f"Unknown region: {effective_region}")
+
+    vessels = [
+        v for v in _feed_manager.get_latest_vessels()
+        if v.h3_cells.get(4) in cell_set
+    ]
 
     vessel_list = []
     for v in vessels:
@@ -120,11 +149,12 @@ async def get_all_vessels(
             track_points=len(track),
         ))
     return VesselResponse(
-        h3_cell=region or "all",
-        resolution=4 if region else 0,
+        h3_cell=effective_region,
+        resolution=4,
         count=len(vessels),
         vessels=vessel_list,
         timestamp=datetime.now(timezone.utc),
+        regions_version=regions_version(),
     )
 
 
@@ -132,21 +162,30 @@ async def get_all_vessels(
 async def get_all_aircraft(
     region: str | None = Query(
         default=None,
-        description="Optional region name (e.g. san_francisco, boston) — "
-                    "filters aircraft to those in the region's 7-cell H3 tile. "
-                    "Absent = all active regions.",
+        description="Region name (e.g. san_francisco, boston) — filters "
+                    "aircraft to those in the region's 7-cell H3 tile. "
+                    f"Absent = legacy contract (defaults to {LEGACY_REGION}, "
+                    "the pinned slot-0 region). v4 clients should always "
+                    "send this explicitly.",
     ),
 ) -> AircraftResponse:
-    """Return all live aircraft positions, optionally filtered to one region."""
+    """Return live aircraft positions for one region.
+
+    Legacy v3.1 clients call without ?region= and get the slot-0 region
+    (san_francisco). v4 clients always send ?region=<key>.
+    """
     if _feed_manager is None:
         raise HTTPException(503, "Feed manager not initialized")
 
-    aircraft = _feed_manager.get_latest_aircraft()
-    if region is not None:
-        cell_set = _region_cell_set(region)
-        if cell_set is None:
-            raise HTTPException(400, f"Unknown region: {region}")
-        aircraft = [a for a in aircraft if a.h3_cells.get(4) in cell_set]
+    effective_region = region if region is not None else LEGACY_REGION
+    cell_set = _region_cell_set(effective_region)
+    if cell_set is None:
+        raise HTTPException(400, f"Unknown region: {effective_region}")
+
+    aircraft = [
+        a for a in _feed_manager.get_latest_aircraft()
+        if a.h3_cells.get(4) in cell_set
+    ]
 
     aircraft_list = []
     for a in aircraft:
@@ -157,11 +196,12 @@ async def get_all_aircraft(
             track_points=len(track),
         ))
     return AircraftResponse(
-        h3_cell=region or "all",
-        resolution=4 if region else 0,
+        h3_cell=effective_region,
+        resolution=4,
         count=len(aircraft),
         aircraft=aircraft_list,
         timestamp=datetime.now(timezone.utc),
+        regions_version=regions_version(),
     )
 
 
@@ -194,6 +234,7 @@ async def get_vessels(
         count=len(vessels),
         vessels=vessel_list,
         timestamp=datetime.now(timezone.utc),
+        regions_version=regions_version(),
     )
 
 
@@ -226,6 +267,7 @@ async def get_aircraft(
         count=len(aircraft),
         aircraft=aircraft_list,
         timestamp=datetime.now(timezone.utc),
+        regions_version=regions_version(),
     )
 
 
@@ -307,9 +349,9 @@ async def get_causal_layer(
 
       * weather_alert and tfr_active nodes are exogenous roots positioned
         at their polygon centroid.
-      * vessel_loitering, dark_vessel_gap, ground_stop_indicator, and
-        density_anomaly nodes are downstream effects positioned at the
-        affected entity's location.
+      * dark_vessel_gap, ground_stop_indicator, and density_anomaly
+        nodes are downstream effects positioned at the affected
+        entity's location.
       * Edges connect causes to effects via the domain rule engine
         (Pearl-style structural model).
 
@@ -375,6 +417,7 @@ async def get_causal_layer(
         node_count=len(nodes_out),
         edge_count=len(edges_out),
         generated_at=datetime.now(timezone.utc),
+        regions_version=regions_version(),
     )
 
 

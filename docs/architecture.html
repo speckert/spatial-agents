@@ -21,6 +21,15 @@
                          updated package tree with aisstream_client,
                          nws_client, tfr_client, routes_weather,
                          routes_tfr, routes_stats — Claude 4.7
+      0.3.0  2026-04-26  Reframed Structural Causal Models as an active
+                         research direction (output bounded by ingested
+                         sources). Replaced vessel_loitering examples
+                         in the causal section with TFR/density/
+                         ground-stop equivalents. Added regions/ package
+                         + routes_regions.py to the tree. New API rows
+                         for POST /regions/swap, GET /regions, GET
+                         /api/stats/swaps. ADS-B description corrected
+                         to 45 s round-robin × N regions — Claude 4.7
 -->
 <html lang="en">
 <head>
@@ -760,7 +769,7 @@
     </div>
     <div class="card">
       <h3>ADS-B Aircraft Surveillance</h3>
-      <p>~50–100K aircraft globally via OpenSky OAuth2. State vectors decoded to position, altitude, velocity, callsign, ICAO 24-bit address, on-ground flag, flight phase. Polled every 45 seconds, round-robin across active regions.</p>
+      <p>~50–100K aircraft globally via OpenSky OAuth2. State vectors decoded to position, altitude, velocity, callsign, ICAO 24-bit address, on-ground flag, flight phase. Round-robin across active regions on a 45 s rotation — each region polled once per 45×N seconds (N = active region count). 5 s warm-up cadence on cold start until every region has been hit once.</p>
       <span class="tag python">Python</span>
     </div>
     <div class="card">
@@ -819,7 +828,13 @@
 │   ├── <span class="file">routes_tfr.py</span>            <span class="comment"># GET /api/tfr — active FAA Temporary Flight Restrictions</span>
 │   ├── <span class="file">routes_stats.py</span>          <span class="comment"># GET /api/stats — feed throughput, counts, timeseries</span>
 │   ├── <span class="file">routes_health.py</span>         <span class="comment"># GET /health — pipeline status, multi-region geometry</span>
+│   ├── <span class="file">routes_regions.py</span>        <span class="comment"># POST /regions/swap, GET /regions — runtime region mutation</span>
 │   └── <span class="file">file_exporter.py</span>         <span class="comment"># Write payloads to shared filesystem (alt mode)</span>
+│
+├── <span class="dir">regions/</span>                     <span class="comment"># Runtime active-region management</span>
+│   ├── <span class="file">manager.py</span>               <span class="comment"># RegionsManager — slot-1 swap, version hash, cooldown</span>
+│   ├── <span class="file">geocoder.py</span>              <span class="comment"># Nominatim → lat/lng → res-4 H3 + 6-cell buffer</span>
+│   └── <span class="file">swap_log.py</span>              <span class="comment"># Append-only JSONL audit (city, IP, status)</span>
 │
 ├── <span class="dir">deploy/</span>                      <span class="comment"># Deployment configurations</span>
 │   ├── <span class="file">local_mac.py</span>             <span class="comment"># Neural Magician config, localhost:8012</span>
@@ -991,14 +1006,15 @@ remaining = context_size - inst_tokens - payload_tokens
   <div class="section-label">Causal Intelligence</div>
   <h2>Structural Causal Models</h2>
   <p class="subtitle">
-    Pearl's SCM framework applied to geospatial event streams.
-    The Python layer builds causal graphs from observed patterns;
-    the on-device FM narrates them into actionable intelligence.
+    Pearl's SCM framework applied to geospatial event streams — an
+    active research direction at SpeckTech, not a finished feature.
+    The current prototype builds DAGs from observed patterns and
+    narrates them through the on-device FM.
   </p>
 
   <p style="font-size: 0.9rem; max-width: 720px; margin-bottom: 0.5rem;">
     <em style="font-family: var(--font-display); color: var(--accent-violet);">Know the How, Show the Why</em>
-    — moving beyond correlation dashboards to causal reasoning about <em>why</em> geospatial patterns emerge.
+    — moving beyond correlation dashboards toward causal reasoning about <em>why</em> geospatial patterns emerge. Output quality is bounded by the breadth of sources we ingest; expanding the source set is the main lever, and the rule base will grow with it.
   </p>
 
   <div class="causal-flow">
@@ -1006,14 +1022,14 @@ remaining = context_size - inst_tokens - payload_tokens
       <div class="causal-step-num">1</div>
       <div class="causal-step-content">
         <h4>Event Detection</h4>
-        <p>Identify behavioral patterns across data streams — vessel loitering, flight diversions, correlated AIS/ADS-B anomalies, dark vessel gaps.</p>
+        <p>Identify behavioral patterns across data streams — dark vessel gaps, density anomalies, ground-stop indicators — alongside exogenous roots like NWS severe weather alerts and active FAA TFRs.</p>
       </div>
     </div>
     <div class="causal-step">
       <div class="causal-step-num">2</div>
       <div class="causal-step-content">
         <h4>DAG Construction</h4>
-        <p>Build directed acyclic graphs encoding causal relationships: weather → route deviation → port congestion → vessel loitering. Nodes are observable events; edges encode causal direction.</p>
+        <p>Build directed acyclic graphs encoding causal relationships: weather alert → ground stop → density anomaly. Nodes are observable events; edges encode causal direction, matched against a domain rule base.</p>
       </div>
     </div>
     <div class="causal-step">
@@ -1034,7 +1050,7 @@ remaining = context_size - inst_tokens - payload_tokens
       <div class="causal-step-num">5</div>
       <div class="causal-step-content">
         <h4>On-Device Narration</h4>
-        <p>The Swift client passes the causal graph to the on-device FM, which generates human-readable intelligence: "Vessel loitering near Oakland increased 40% because storm-driven route changes created a 12-hour backlog."</p>
+        <p>The Swift client passes the causal graph to the on-device FM, which generates human-readable intelligence: "Aircraft density west of SFO is 2.3× normal because an active TFR is forcing reroutes through the adjacent corridor."</p>
       </div>
     </div>
   </div>
@@ -1115,6 +1131,24 @@ remaining = context_size - inst_tokens - payload_tokens
         <td class="mono">/tiles/h3/{res}/{cell}.json</td>
         <td>Static H3 tile — pre-computed vessel/aircraft data</td>
         <td>GeoJSON</td>
+      </tr>
+      <tr>
+        <td class="mono">POST</td>
+        <td class="mono">/regions/swap</td>
+        <td>Replace slot 1 of the active region list with a geocoded city. Rate-limited (112 s cooldown). Slot 0 is pinned to san_francisco.</td>
+        <td>RegionSwapResponse</td>
+      </tr>
+      <tr>
+        <td class="mono">GET</td>
+        <td class="mono">/regions</td>
+        <td>Diagnostic snapshot — active list, version hash, cooldown remaining</td>
+        <td>RegionsState</td>
+      </tr>
+      <tr>
+        <td class="mono">GET</td>
+        <td class="mono">/api/stats/swaps</td>
+        <td>Recent region-swap audit log (city, IP, status)</td>
+        <td>SwapLogResponse</td>
       </tr>
     </tbody>
   </table>

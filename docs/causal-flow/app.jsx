@@ -21,6 +21,12 @@
                          localStorage so map.html and causal-flow.html
                          stay in sync. URL ?region= still wins for
                          deep links — Claude 4.7
+      0.2.0  2026-04-26  Track regions_version returned by /health and
+                         /api/causal/layer. On version drift (slot 1
+                         swapped from another tab/client) re-discover
+                         the region list and reload datasets so the
+                         tab strip is never stuck on a removed region.
+                         — Claude 4.7
 */
 
 const { useState, useEffect, useMemo, useCallback } = React;
@@ -58,36 +64,53 @@ function App() {
   const [tickKey, setTickKey] = useState(0);
   const [, setNowTick] = useState(0);                     // forces re-render every 1s for relative time
   const [pendingFocusNode, setPendingFocusNode] = useState(initialParams.node);
+  // regions_version content hash — server stamps every region-aware
+  // response with it. A mismatch means slot 1 was swapped (by the +New
+  // button in map.html, by an iOS v4 client, or by direct API call) and
+  // we should re-discover the region list.
+  const [regionsVersion, setRegionsVersion] = useState('');
 
-  // 1. Discover regions from /health
-  useEffect(() => {
-    let mounted = true;
+  // Discover regions from /health. Pulled out as a function so we can
+  // call it both at mount and whenever a poll detects a version drift.
+  const discoverRegions = useCallback(() => {
+    let cancelled = false;
     fetch(`${API}/health`)
       .then(res => res.json())
       .then(data => {
-        if (!mounted) return;
+        if (cancelled) return;
         const ids = Object.keys(data.regions || {});
         const list = ids.map(id => ({ id, label: regionDisplayName(id) }));
         setRegions(list);
-        let stored = null;
-        try { stored = localStorage.getItem('spatial-agents-region'); } catch (_) {}
-        const initial =
-          (initialParams.region && ids.includes(initialParams.region)) ? initialParams.region :
-          (stored && ids.includes(stored)) ? stored :
-          (ids[0] || null);
-        setRegion(initial);
-        if (!initial) setLoading(false);
+        if (data.regions_version) setRegionsVersion(data.regions_version);
+        // Pick a sensible region: respect URL on first mount; else keep
+        // current region if still present; else fall back to slot 0.
+        setRegion(prev => {
+          if (prev && ids.includes(prev)) return prev;
+          let stored = null;
+          try { stored = localStorage.getItem('spatial-agents-region'); } catch (_) {}
+          if (initialParams.region && ids.includes(initialParams.region)) return initialParams.region;
+          if (stored && ids.includes(stored)) return stored;
+          return ids[0] || null;
+        });
       })
       .catch(err => {
-        if (!mounted) return;
+        if (cancelled) return;
         setError(`Could not reach /health: ${err.message}`);
         setLoading(false);
       });
-    return () => { mounted = false; };
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 2. Once we know the region list, load all regions' causal layers
+  // 1. Initial discovery
+  useEffect(() => {
+    const cancel = discoverRegions();
+    return cancel;
+  }, [discoverRegions]);
+
+  // 2. Once we know the region list, load all regions' causal layers.
+  // Each response carries `regions_version`; if any of them differs from
+  // our cached value the region list itself is stale, so re-discover.
   const loadAll = useCallback(() => {
     if (!regions.length) return;
     Promise.all(regions.map(r =>
@@ -101,8 +124,25 @@ function App() {
       setLastUpdated(new Date());
       setTickKey(k => k + 1);
       setLoading(false);
+
+      // Version drift check — any response with a different version
+      // means the active set has changed and we need a fresh /health.
+      const seen = results
+        .map(r => r && r.regions_version)
+        .filter(Boolean);
+      if (seen.length && regionsVersion) {
+        const drift = seen.find(v => v !== regionsVersion);
+        if (drift) {
+          // eslint-disable-next-line no-console
+          console.info('[causal-flow] regions_version drift', regionsVersion, '→', drift);
+          discoverRegions();
+        }
+      } else if (seen.length && !regionsVersion) {
+        // First successful poll — seed the cache.
+        setRegionsVersion(seen[0]);
+      }
     });
-  }, [regions]);
+  }, [regions, regionsVersion, discoverRegions]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 

@@ -3,7 +3,6 @@ Event Detector — Pattern detection across geospatial data streams.
 
 Identifies behavioral patterns and anomalies from vessel and aircraft
 records that become nodes in the structural causal model:
-    - Vessel loitering (low speed, small area, extended duration)
     - Dark vessel gaps (AIS transmission interruptions)
     - Route deviations (significant departure from expected track)
     - Flight diversions (aircraft deviating from filed route)
@@ -19,6 +18,13 @@ Version History:
     0.2.1  2026-04-25  TEMP: relaxed LOITER_MIN_DURATION_MIN 30→3 to
                        exercise the live causal DAG against Chicago
                        weather. Restore before production — Claude 4.7
+    0.3.0  2026-04-26  Removed vessel_loitering detection for v4.0.
+                       It was firing on every moored / NaN-speed vessel
+                       in dense ports (Amsterdam: 864 nodes, 0 edges),
+                       producing visual clutter without real causal
+                       insight. The feature can be revived later behind
+                       a tighter classifier (moored vs anchored vs
+                       drifting) — Claude 4.7
 """
 
 from __future__ import annotations
@@ -138,10 +144,6 @@ class EventDetector:
     """
 
     # Thresholds (configurable)
-    LOITER_SPEED_KNOTS = 2.0
-    LOITER_MIN_DURATION_MIN = 3  # TEMP: relaxed 30→3 to exercise the
-                                 # causal DAG against live Chicago weather.
-                                 # Restore to 30 before production.
     DARK_GAP_MIN_MINUTES = 15
     ROUTE_DEVIATION_NM = 5.0
     DENSITY_ZSCORE_THRESHOLD = 2.0
@@ -173,7 +175,6 @@ class EventDetector:
             events.extend(self.detect_tfr_events(tfrs, h3_cell))
 
         # Vessel-based detections
-        events.extend(self.detect_loitering(vessels, h3_cell))
         events.extend(self.detect_density_anomaly(vessels, h3_cell, domain=DataDomain.MARITIME))
 
         # Track-based detections (need temporal history)
@@ -187,58 +188,6 @@ class EventDetector:
         self._event_count += len(events)
         return events
 
-    def detect_loitering(
-        self,
-        vessels: list[VesselRecord],
-        h3_cell: str,
-    ) -> list[DetectedEvent]:
-        """
-        Detect vessels with low speed in a confined area.
-
-        A vessel is loitering if speed < threshold and it has been
-        in the same H3 cell for an extended period.
-        """
-        events: list[DetectedEvent] = []
-
-        slow_vessels = [
-            v for v in vessels
-            if v.speed_knots is not None and v.speed_knots < self.LOITER_SPEED_KNOTS
-            and v.speed_knots >= 0  # Exclude exactly 0 (likely at berth)
-        ]
-
-        if not slow_vessels:
-            return events
-
-        # Group by vessel
-        by_mmsi: dict[str, list[VesselRecord]] = {}
-        for v in slow_vessels:
-            by_mmsi.setdefault(v.mmsi, []).append(v)
-
-        for mmsi, records in by_mmsi.items():
-            if len(records) < 2:
-                continue
-
-            avg_speed = np.mean([r.speed_knots for r in records if r.speed_knots])
-            name = records[0].name or mmsi
-            last = records[-1].position
-
-            events.append(DetectedEvent(
-                event_type="vessel_loitering",
-                domain=DataDomain.MARITIME,
-                description=f"Vessel {name} loitering at {avg_speed:.1f} knots",
-                entity_ids=[mmsi],
-                h3_cell=h3_cell,
-                timestamp=last.timestamp,
-                confidence=min(0.9, len(records) * 0.15),
-                metrics={
-                    "avg_speed_knots": float(avg_speed),
-                    "report_count": len(records),
-                },
-                lat=last.lat,
-                lng=last.lng,
-            ))
-
-        return events
 
     def detect_dark_gaps(
         self,

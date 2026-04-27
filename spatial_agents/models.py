@@ -34,6 +34,20 @@ Version History:
                        domains, optional lat/lng on CausalNode for
                        map-layer rendering, CausalLayerResponse for
                        the /api/causal/layer endpoint — Claude 4.7
+    0.9.0  2026-04-26  regions_version field added to every region-aware
+                       response (vessels, aircraft, weather, TFR, causal
+                       layer, health). Clients compare against their
+                       cached value; on mismatch they re-fetch /health
+                       to pick up the new slot 1. RegionSwapRequest and
+                       RegionSwapResponse for POST /regions/swap. Legacy
+                       3.1 clients ignore the field — Claude 4.7
+    0.10.0 2026-04-26  CoverageResponse adds display_name — the original
+                       city string the user typed (any language Nominatim
+                       accepts). Lets localized clients show a
+                       language-appropriate label without having to
+                       round-trip their typed input. Empty string for
+                       legacy state files that pre-date display-name
+                       persistence — Claude 4.7
 """
 
 from __future__ import annotations
@@ -261,8 +275,8 @@ class CausalNode(BaseModel):
     label: str
     domain: DataDomain
     event_type: str = Field(
-        description="e.g. vessel_loitering, weather_alert, tfr_active, "
-                    "ground_stop_indicator, density_anomaly_high, dark_vessel_gap",
+        description="e.g. weather_alert, tfr_active, ground_stop_indicator, "
+                    "density_anomaly_high, dark_vessel_gap",
     )
     observed_value: float | None = None
     timestamp: datetime | None = None
@@ -312,6 +326,11 @@ class CausalLayerResponse(BaseModel):
     node_count: int = Field(description="Number of nodes in the DAG.")
     edge_count: int = Field(description="Number of edges in the DAG.")
     generated_at: datetime
+    regions_version: str = Field(
+        default="",
+        description="Content-hash of the server's current ACTIVE_REGIONS. "
+                    "See VesselResponse.regions_version for client semantics.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -380,6 +399,14 @@ class VesselResponse(BaseModel):
     count: int = Field(description="Number of vessels in this cell")
     vessels: list[VesselWithTrack] = Field(description="Vessel records with position trails")
     timestamp: datetime = Field(description="Response generation time (UTC)")
+    regions_version: str = Field(
+        default="",
+        description="Content-hash of the server's current ACTIVE_REGIONS. "
+                    "Clients cache this on first /health call and compare "
+                    "on every subsequent region-aware response; on mismatch "
+                    "the client should re-fetch /health to pick up the new "
+                    "region set.",
+    )
 
 
 class AircraftResponse(BaseModel):
@@ -389,6 +416,11 @@ class AircraftResponse(BaseModel):
     count: int = Field(description="Number of aircraft in this cell")
     aircraft: list[AircraftWithTrack] = Field(description="Aircraft records with position trails")
     timestamp: datetime = Field(description="Response generation time (UTC)")
+    regions_version: str = Field(
+        default="",
+        description="Content-hash of the server's current ACTIVE_REGIONS. "
+                    "See VesselResponse.regions_version for client semantics.",
+    )
 
 
 class IntelligenceResponse(BaseModel):
@@ -436,6 +468,15 @@ class CoverageResponse(BaseModel):
     """
     region: str = Field(
         description="Active region name (e.g. san_francisco, boston)",
+    )
+    display_name: str = Field(
+        default="",
+        description="Human-readable label for this region. For custom regions "
+                    "this is the original city string the user typed (in any "
+                    "language Nominatim accepts — e.g. 'København', '東京', "
+                    "'São Paulo'). For seeded regions it's the canonical "
+                    "English name ('San Francisco', 'Chicago'). Clients "
+                    "should prefer this over snake-casing `region`.",
     )
     h3_cells: dict[int, list[str]] = Field(
         description="Minimal set of H3 cells to query for data within the bbox. "
@@ -526,6 +567,13 @@ class WeatherAlertsResponse(BaseModel):
     last_updated: datetime = Field(
         description="Time the underlying NWS feed was last fetched (UTC)."
     )
+    regions_version: str = Field(
+        default="",
+        description="Content-hash of the server's current ACTIVE_REGIONS. "
+                    "See VesselResponse.regions_version for client semantics. "
+                    "NWS alerts themselves are global — only the per-alert "
+                    "`regions` filter list reflects the active set.",
+    )
 
 
 class TFR(BaseModel):
@@ -592,6 +640,13 @@ class TFRsResponse(BaseModel):
     last_updated: datetime = Field(
         description="Time the underlying FAA feed was last fetched (UTC)."
     )
+    regions_version: str = Field(
+        default="",
+        description="Content-hash of the server's current ACTIVE_REGIONS. "
+                    "See VesselResponse.regions_version for client semantics. "
+                    "TFRs are global CONUS-wide; only the per-TFR `regions` "
+                    "filter list reflects the active set.",
+    )
 
 
 class HealthResponse(BaseModel):
@@ -606,6 +661,62 @@ class HealthResponse(BaseModel):
     regions: dict[str, CoverageResponse] = Field(
         default_factory=dict,
         description="Per-region coverage info keyed by region name",
+    )
+    regions_version: str = Field(
+        default="",
+        description="Content-hash of the server's current ACTIVE_REGIONS. "
+                    "Clients cache this on first /health and compare it to "
+                    "the regions_version returned on every region-aware "
+                    "endpoint; on mismatch they should re-fetch /health to "
+                    "rebuild their region UI. Slot 0 (san_francisco) is "
+                    "pinned; only slot 1 changes via POST /regions/swap.",
+    )
+    regions_slot_zero_pinned: str = Field(
+        default="san_francisco",
+        description="The region locked in slot 0 — never changes regardless "
+                    "of swap calls. Legacy iOS 3.1 clients (which don't pass "
+                    "?region=) effectively render this region's data only.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Region swap (POST /regions/swap)
+# ---------------------------------------------------------------------------
+
+class RegionSwapRequest(BaseModel):
+    """Body of POST /regions/swap — replace slot 1 with a new city."""
+    city: str = Field(
+        min_length=1,
+        max_length=100,
+        description="Free-text city name. US or international. "
+                    "Geocoded server-side via Nominatim to lat/lng, then "
+                    "snapped to the nearest res-4 H3 cell. The normalized "
+                    "snake_case key (e.g. 'st_louis') becomes the region "
+                    "identifier used in subsequent ?region= queries.",
+    )
+
+
+class RegionSwapResponse(BaseModel):
+    """Response from POST /regions/swap on success."""
+    old_slot_one: str | None = Field(
+        description="The region that was just removed from slot 1 (None if "
+                    "slot 1 was empty before this call)."
+    )
+    new_slot_one: str = Field(
+        description="The new slot 1 region key (snake_case)."
+    )
+    active_regions: list[str] = Field(
+        description="The full active region list after the swap. Slot 0 is "
+                    "always san_francisco; slot 1 is the new city."
+    )
+    regions_version: str = Field(
+        description="The new content-hash. Clients should treat this as the "
+                    "authoritative version going forward and re-fetch /health "
+                    "to repopulate region buttons."
+    )
+    seconds_until_next_swap_allowed: int = Field(
+        description="Cooldown remaining before another swap is permitted. "
+                    "Hitting POST /regions/swap before this elapses returns 429."
     )
 
 

@@ -17,6 +17,10 @@ Version History:
     0.2.0  2026-04-25  Added concrete weather_alert and tfr_active
                        cause types so live NWS / FAA feeds drive the
                        DAG as exogenous roots — Claude 4.7
+    0.3.0  2026-04-26  Removed all rules involving vessel_loitering
+                       (the event itself is no longer detected — it
+                       was firing on every moored vessel and producing
+                       clutter without insight) — Claude 4.7
 """
 
 from __future__ import annotations
@@ -39,16 +43,12 @@ logger = logging.getLogger(__name__)
 # Each rule: (cause_type, effect_type, base_strength, mechanism)
 CAUSAL_RULES: list[tuple[str, str, float, str]] = [
     # Weather → traffic disruption (legacy generic + concrete NWS-driven)
-    ("weather_event", "vessel_loitering", 0.7,
-     "Adverse weather causes vessels to anchor or slow down"),
     ("weather_event", "ground_stop_indicator", 0.8,
      "Severe weather triggers ground stops at airports"),
     ("weather_event", "density_anomaly_high", 0.6,
      "Weather-driven delays increase local vessel/aircraft density"),
 
     # NWS active alerts (exogenous roots — drive everything below)
-    ("weather_alert", "vessel_loitering", 0.7,
-     "Severe weather drives vessels to anchor or reduce speed"),
     ("weather_alert", "ground_stop_indicator", 0.85,
      "Severe weather triggers airport ground stops"),
     ("weather_alert", "density_anomaly_high", 0.6,
@@ -63,18 +63,6 @@ CAUSAL_RULES: list[tuple[str, str, float, str]] = [
      "Active TFR voids the affected airspace of normal traffic"),
     ("tfr_active", "density_anomaly_high", 0.4,
      "Aircraft rerouting around an active TFR concentrates traffic in adjacent corridors"),
-
-    # Port congestion chains
-    ("density_anomaly_high", "vessel_loitering", 0.65,
-     "High traffic density causes vessels to wait for berth availability"),
-    ("vessel_loitering", "density_anomaly_high", 0.4,
-     "Loitering vessels contribute to increased local density"),
-
-    # Dark vessel activity
-    ("dark_vessel_gap", "vessel_loitering", 0.3,
-     "Vessels may loiter after re-enabling AIS following a dark period"),
-    ("vessel_loitering", "dark_vessel_gap", 0.25,
-     "Loitering vessels may disable AIS to avoid detection"),
 
     # Aviation chains
     ("ground_stop_indicator", "density_anomaly_high", 0.75,

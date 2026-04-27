@@ -100,8 +100,8 @@ class TestEventDetectionPipeline:
         assert len(events) > 0
 
         event_types = {e.event_type for e in events}
-        # Should detect at least loitering (from slow vessels in sample data)
-        assert "vessel_loitering" in event_types
+        # Should detect at least the dark vessel gap (from sample_dark_gap_track)
+        assert "dark_vessel_gap" in event_types
 
     def test_detect_dark_gap(self, sample_dark_gap_track, event_detector):
         """Detect AIS dark gap in sample track."""

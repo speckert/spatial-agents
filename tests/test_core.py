@@ -311,23 +311,6 @@ class TestGeoJSONExport:
 # ---------------------------------------------------------------------------
 
 class TestEventDetector:
-    def test_detect_loitering(self) -> None:
-        from spatial_agents.causal.event_detector import EventDetector
-
-        detector = EventDetector()
-
-        # Create slow-moving vessels
-        vessels = [
-            make_vessel(mmsi="001", speed=1.5),
-            make_vessel(mmsi="001", speed=1.2),
-            make_vessel(mmsi="002", speed=0.8),
-            make_vessel(mmsi="002", speed=0.5),
-        ]
-
-        events = detector.detect_loitering(vessels, "842831dffffffff")
-        assert len(events) >= 1
-        assert events[0].event_type == "vessel_loitering"
-
     def test_detect_ground_stops(self) -> None:
         from spatial_agents.causal.event_detector import EventDetector
 
@@ -377,20 +360,20 @@ class TestDAGBuilder:
                 metrics={},
             ),
             DetectedEvent(
-                event_type="vessel_loitering",
-                domain=DataDomain.MARITIME,
-                description="Vessel anchored due to weather",
-                entity_ids=["367000001"],
+                event_type="ground_stop_indicator",
+                domain=DataDomain.AVIATION,
+                description="Ground stop triggered by weather",
+                entity_ids=["AAL123"],
                 h3_cell="842831dffffffff",
                 timestamp=NOW + timedelta(hours=2),
                 confidence=0.7,
-                metrics={"avg_speed_knots": 0.5},
+                metrics={"grounded_pct": 0.85},
             ),
         ]
 
         graph = builder.build(events, "842831dffffffff")
         assert len(graph.nodes) == 2
-        # Should find the weather → loitering causal rule
+        # Should find the weather → ground_stop_indicator causal rule
         assert len(graph.edges) >= 1
         assert graph.edges[0].source.startswith("e0")
         assert graph.edges[0].target.startswith("e1")
@@ -405,7 +388,7 @@ class TestDAGBuilder:
                 CausalNode(id="a", label="Root", domain=DataDomain.MARITIME,
                            event_type="weather_event", timestamp=NOW),
                 CausalNode(id="b", label="Effect", domain=DataDomain.MARITIME,
-                           event_type="vessel_loitering", timestamp=NOW),
+                           event_type="density_anomaly_high", timestamp=NOW),
             ],
             edges=[CausalEdge(source="a", target="b", strength=0.7, mechanism="test")],
             generated_at=NOW,
@@ -430,7 +413,7 @@ class TestInterventionEngine:
                 CausalNode(id="a", label="Cause", domain=DataDomain.MARITIME,
                            event_type="weather_event", observed_value=0.9, timestamp=NOW),
                 CausalNode(id="b", label="Effect", domain=DataDomain.MARITIME,
-                           event_type="vessel_loitering", observed_value=0.7, timestamp=NOW),
+                           event_type="density_anomaly_high", observed_value=0.7, timestamp=NOW),
             ],
             edges=[CausalEdge(source="a", target="b", strength=0.8, mechanism="weather causes delay")],
             generated_at=NOW,

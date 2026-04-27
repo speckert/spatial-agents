@@ -41,6 +41,127 @@
                        Active region persisted to localStorage on each
                        switch so causal-flow.html opens to the same
                        region — Claude 4.7
+    0.11.0 2026-04-26  Replaced the "Other → MarineTraffic" button with
+                       a "+ New" button that POSTs to /regions/swap with
+                       a free-text city name. Server-side geocoder
+                       resolves it to an H3 region. Every region-aware
+                       response carries `regions_version`; on mismatch
+                       the map re-fetches /health and rebuilds the
+                       switcher so a swap from another tab/client
+                       propagates within one poll cycle. Slot 0 (San
+                       Francisco) is locked server-side — Claude 4.7
+    0.11.1 2026-04-26  Post-swap UI now hard-switches to the new city
+                       via switchRegion(new_slot_one), bypassing the
+                       version-mismatch coalescing guard. Earlier path
+                       could lose the swap to a concurrent poll-driven
+                       refreshHealth() and leave the map stuck on SF.
+                       — Claude 4.7
+    0.12.0 2026-04-26  Causal layer toggle now defaults to OFF for v4.0.
+                       Reason: vessel_loitering was firing on every
+                       moored vessel in dense ports (Amsterdam: 864
+                       isolated nodes), producing visual clutter without
+                       insight. Server-side detector and DAG rules for
+                       loitering also removed. Causal layer remains
+                       available — toggle it on from the header — Claude 4.7
+    0.12.1 2026-04-26  fetchVessels/fetchAircraft now fan out one
+                       request per active region (?region=<name>) and
+                       merge, instead of one unfiltered call. Required
+                       because the server's legacy unfiltered contract
+                       was narrowed to san_francisco only — without
+                       this, the slot-1 city (e.g. Hamburg) showed 0
+                       vessels and 0 aircraft on the web map while the
+                       iOS app saw the full feed — Claude 4.7
+    0.13.0 2026-04-26  regionDisplayName() now prefers
+                       allRegions[name].display_name from /health
+                       instead of locally re-deriving snake_case →
+                       Title Case. Lets the user's original typed
+                       city string (any language Nominatim accepts —
+                       "København", "東京", "São Paulo") survive
+                       round-trip and render correctly. Falls back to
+                       the snake-case derivation when the manifest
+                       hasn't loaded yet — Claude 4.7
+    0.14.0 2026-04-26  Removed the "H3 cells" header button and its
+                       weather-polygon hex overlay. Originally shipped
+                       in 0.6.0 as a debug visualization to verify the
+                       NWS-polygon → H3 compact rasterization. That
+                       verification has been done; the overlay only
+                       drew a less-precise hex approximation on top of
+                       the authoritative polygon and confused users.
+                       Server still emits h3_cells_geometry — only the
+                       client-side rendering of it is gone. Removed:
+                       button, source, two layers, click wiring,
+                       state var, visibility helper — Claude 4.7
+    0.15.0 2026-04-26  When the user is viewing the slot-1 region
+                       and someone (e.g. iOS app) swaps slot 1 to a
+                       different city, the map now follows the swap
+                       to the new city instead of snapping back to
+                       San Francisco. Previously refreshHealth()
+                       fell back to Object.keys(allRegions)[0] (=
+                       slot 0) whenever activeRegion disappeared.
+                       New logic: if the user was on the pinned
+                       slot, stay; otherwise follow to whichever
+                       non-pinned slot is now active. Tracks
+                       regions_slot_zero_pinned from /health to
+                       distinguish — Claude 4.7
+    0.18.1 2026-04-26  Populate-wait toast countdown now starts when
+                       the pan-to-new-city animation finishes (MapLibre
+                       'moveend') rather than at toast-show. Reason:
+                       on slow flyTo / fitBounds animations the 6-second
+                       timer was burning down while the camera was
+                       still moving, so the user got <6 s to read the
+                       toast against the new city. 4-second safety net
+                       starts the countdown anyway if 'moveend' never
+                       fires — Claude 4.7
+    0.18.0 2026-04-26  Populate-wait toast: after a successful
+                       /regions/swap (direct from + New, or
+                       drift-follow when an iOS app / other tab
+                       swapped slot 1), a small cyan toast under
+                       the header reads "Loading <city> — feeds
+                       will populate over ~60 s" and fades out
+                       after 6 seconds. Reason: when a brand-new
+                       city is swapped in, the AIS subscription
+                       has to reconnect to the new bbox and the
+                       next ADS-B poll has to fire — until then
+                       the map is empty and looks broken. Toast
+                       fires only on swap, not on tapping an
+                       already-active region button (instant)
+                       and not on first page load. — Claude 4.7
+    0.17.0 2026-04-26  Header trimmed to free horizontal space:
+                       removed the "<region> — Live" subtitle (the
+                       active region is already obvious from the
+                       region-switcher buttons immediately to its
+                       right), removed the alerts/TFRs/causal
+                       counters from entity-count (kept vessels +
+                       aircraft, the only counts users actually
+                       watched), removed the "Causal" DAG toggle
+                       button, and removed the "Causal Flow"
+                       nav-link. Causal infrastructure (sources,
+                       layers, /api/causal/layer poll loop) stays
+                       in place — there's no compelling causal
+                       visualization story for v4.0, so the UI
+                       just doesn't surface it. Default-off poll
+                       early-returns when the layer is hidden, so
+                       this costs nothing at runtime — Claude 4.7
+    0.16.0 2026-04-26  Plane icons rewritten as path-based SVG
+                       silhouettes pointing up at 0° heading.
+                       Previously a unicode '✈' (U+2708) drawn into
+                       a text element with fill=color and a
+                       transform="rotate(-90)" trick (the glyph
+                       natively points east). On iOS Safari and
+                       iPadOS that character falls back to Apple
+                       Color Emoji — a fixed-palette bitmap that
+                       ignores SVG fill (so all planes rendered the
+                       same bicolor), has a different glyph
+                       orientation (~45° NE, so the -90° rotate
+                       overshot and the planes appeared rotated
+                       ~45° CCW from heading), and has different
+                       metrics (wrong size). Path-based SVG
+                       sidesteps all three. Same path inlined into
+                       the legend's six aircraft swatches. Mobile
+                       media query no longer hides the legend
+                       outright — relies on the existing 5-second
+                       auto-collapse so it shows on tap without
+                       dominating a phone viewport — Claude 4.7
 -->
 <html lang="en">
 <head>
@@ -79,7 +200,6 @@
     text-decoration: none;
   }
   .header-title:hover { text-decoration: underline; }
-  .header-subtitle { font-size: 0.8rem; color: var(--text-muted); }
   .header-right { display: flex; align-items: center; gap: 1rem; }
   .entity-count {
     font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-secondary);
@@ -172,7 +292,6 @@
   }
   .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .legend-svg { width: 22px; height: 22px; flex-shrink: 0; }
-  .legend-plane-icon { width: 22px; flex-shrink: 0; font-size: 22px; line-height: 1; text-align: center; }
 
   .trail-toggle {
     margin-top: 0.6rem; padding-top: 0.5rem;
@@ -197,6 +316,22 @@
     color: var(--text-secondary); letter-spacing: 0.04em;
   }
 
+  /* Swap-populating toast — shown for ~6s after a successful /regions/swap
+     so the user knows feeds will fill in over the next ~60s rather than
+     thinking the map is broken. */
+  .swap-toast {
+    position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+    z-index: 20; pointer-events: none;
+    background: rgba(6, 78, 90, 0.95); backdrop-filter: blur(8px);
+    border: 1px solid var(--accent-cyan); border-radius: 6px;
+    padding: 0.55rem 1rem; font-family: var(--font-mono);
+    font-size: 0.72rem; letter-spacing: 0.03em; color: #e0f2fe;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+    opacity: 0; transition: opacity 0.25s;
+    max-width: 90vw; text-align: center;
+  }
+  .swap-toast.visible { opacity: 1; }
+
   .advisory-banner {
     display: none; position: absolute; top: 48px; left: 0; right: 0; z-index: 10;
     background: rgba(180, 83, 9, 0.92); backdrop-filter: blur(8px);
@@ -214,11 +349,49 @@
   }
   .advisory-dismiss:hover { border-color: #fef3c7; }
 
+  /* + New region modal */
+  .region-modal-backdrop {
+    display: none; position: fixed; inset: 0; z-index: 100;
+    background: rgba(10, 14, 23, 0.7); backdrop-filter: blur(4px);
+    align-items: center; justify-content: center;
+  }
+  .region-modal-backdrop.visible { display: flex; }
+  .region-modal {
+    background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1.25rem 1.5rem;
+    min-width: 320px; max-width: 420px;
+    color: var(--text-primary);
+  }
+  .region-modal h3 {
+    font-family: var(--font-mono); font-size: 0.75rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--accent-cyan); margin-bottom: 0.4rem;
+  }
+  .region-modal p {
+    font-size: 0.8rem; color: var(--text-secondary);
+    margin-bottom: 0.85rem; line-height: 1.4;
+  }
+  .region-modal input[type=text] {
+    width: 100%; box-sizing: border-box;
+    padding: 0.55rem 0.7rem; font-family: var(--font-body); font-size: 0.85rem;
+    background: var(--bg-deep); border: 1px solid var(--border); border-radius: 5px;
+    color: var(--text-primary); outline: none;
+  }
+  .region-modal input[type=text]:focus { border-color: var(--accent-cyan); }
+  .region-modal-error {
+    color: #fb7185; font-size: 0.7rem; margin-top: 0.5rem;
+    font-family: var(--font-mono); min-height: 0.9rem;
+  }
+  .region-modal-actions {
+    display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.85rem;
+  }
+
   .maplibregl-ctrl-top-right { top: 56px; }
 
   @media (max-width: 768px) {
     .info-panel { left: 0.75rem; right: 0.75rem; min-width: auto; max-width: none; }
-    .legend { display: none; }
+    /* Legend stays visible on phone — auto-collapses to a tap-to-expand
+       button after 5 s, so it doesn't dominate the small viewport. */
+    .legend { right: 0.75rem; bottom: 1rem; max-height: 70vh; overflow-y: auto; }
   }
 </style>
 </head>
@@ -232,17 +405,30 @@
   <button class="advisory-dismiss" onclick="_advisoryDismissed=true;document.getElementById('advisory-banner').classList.remove('visible')">Dismiss</button>
 </div>
 
+<div class="swap-toast" id="swap-toast"></div>
+
+<div class="region-modal-backdrop" id="region-modal-backdrop">
+  <div class="region-modal" role="dialog" aria-labelledby="region-modal-title">
+    <h3 id="region-modal-title">New Region</h3>
+    <p>Type a city name (US or international). The server geocodes it,
+       picks the H3 region, and replaces slot&nbsp;2. San&nbsp;Francisco
+       (slot&nbsp;1) is locked for legacy clients.</p>
+    <input type="text" id="region-modal-input" placeholder="St Louis, Tokyo, Reykjavik…" autocomplete="off" maxlength="100">
+    <div class="region-modal-error" id="region-modal-error"></div>
+    <div class="region-modal-actions">
+      <button class="region-btn" id="region-modal-cancel">Cancel</button>
+      <button class="region-btn" id="region-modal-submit">Switch</button>
+    </div>
+  </div>
+</div>
+
 <div class="header">
   <div class="header-left">
     <a href="index.html" class="header-title">Spatial Agents</a>
-    <span class="header-subtitle" id="region-subtitle">San Francisco — Live</span>
   </div>
   <div class="header-right">
     <div id="region-switcher"></div>
-    <span class="entity-count"><span class="status-dot"></span><strong id="vessel-count">—</strong> vessels, <strong id="aircraft-count">—</strong> aircraft, <strong id="weather-count">0</strong> alerts, <strong id="tfr-count">0</strong> TFRs, <strong id="causal-count">0</strong> causal</span>
-    <button id="h3-toggle" class="region-btn" title="Show H3 compact cell approximation of weather polygons" style="padding:0.35rem 0.7rem;font-size:0.65rem">H3 cells</button>
-    <button id="causal-toggle" class="region-btn active" title="Show the causal DAG over weather, TFRs, vessels, and aircraft" style="padding:0.35rem 0.7rem;font-size:0.65rem">Causal</button>
-    <a href="causal-flow.html" class="nav-link">Causal Flow</a>
+    <span class="entity-count"><span class="status-dot"></span><strong id="vessel-count">—</strong> vessels, <strong id="aircraft-count">—</strong> aircraft</span>
     <a href="index.html" class="nav-link">Overview</a>
   </div>
 </div>
@@ -266,12 +452,12 @@
     <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 10.5,10 9.5,13 6.5,13 5.5,10" transform="rotate(90 8 8)" fill="#06b6d4"/></svg>Other</div>
     <div class="legend-item"><svg class="legend-svg" viewBox="0 0 16 16"><polygon points="8,2 10.5,10 9.5,13 6.5,13 5.5,10" transform="rotate(90 8 8)" fill="#64748b"/></svg>Unknown</div>
     <div class="legend-section">Aircraft</div>
-    <div class="legend-item"><div class="legend-plane-icon" style="color:#22d3ee">&#x2708;</div>Departure</div>
-    <div class="legend-item"><div class="legend-plane-icon" style="color:#10b981">&#x2708;</div>Climbing</div>
-    <div class="legend-item"><div class="legend-plane-icon" style="color:#3b82f6">&#x2708;</div>Cruising</div>
-    <div class="legend-item"><div class="legend-plane-icon" style="color:#f59e0b">&#x2708;</div>Descending</div>
-    <div class="legend-item"><div class="legend-plane-icon" style="color:#f43f5e">&#x2708;</div>Approach</div>
-    <div class="legend-item"><div class="legend-plane-icon" style="color:#78716c">&#x2708;</div>On Ground</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 24 24"><path d="M12 2 L13 9 L22 14 L22 16 L13 14 L13 19 L15.5 20.5 L15.5 22 L12 21 L8.5 22 L8.5 20.5 L11 19 L11 14 L2 16 L2 14 L11 9 Z" fill="#22d3ee" stroke="#0a0e17" stroke-width="1" stroke-linejoin="round"/></svg>Departure</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 24 24"><path d="M12 2 L13 9 L22 14 L22 16 L13 14 L13 19 L15.5 20.5 L15.5 22 L12 21 L8.5 22 L8.5 20.5 L11 19 L11 14 L2 16 L2 14 L11 9 Z" fill="#10b981" stroke="#0a0e17" stroke-width="1" stroke-linejoin="round"/></svg>Climbing</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 24 24"><path d="M12 2 L13 9 L22 14 L22 16 L13 14 L13 19 L15.5 20.5 L15.5 22 L12 21 L8.5 22 L8.5 20.5 L11 19 L11 14 L2 16 L2 14 L11 9 Z" fill="#3b82f6" stroke="#0a0e17" stroke-width="1" stroke-linejoin="round"/></svg>Cruising</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 24 24"><path d="M12 2 L13 9 L22 14 L22 16 L13 14 L13 19 L15.5 20.5 L15.5 22 L12 21 L8.5 22 L8.5 20.5 L11 19 L11 14 L2 16 L2 14 L11 9 Z" fill="#f59e0b" stroke="#0a0e17" stroke-width="1" stroke-linejoin="round"/></svg>Descending</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 24 24"><path d="M12 2 L13 9 L22 14 L22 16 L13 14 L13 19 L15.5 20.5 L15.5 22 L12 21 L8.5 22 L8.5 20.5 L11 19 L11 14 L2 16 L2 14 L11 9 Z" fill="#f43f5e" stroke="#0a0e17" stroke-width="1" stroke-linejoin="round"/></svg>Approach</div>
+    <div class="legend-item"><svg class="legend-svg" viewBox="0 0 24 24"><path d="M12 2 L13 9 L22 14 L22 16 L13 14 L13 19 L15.5 20.5 L15.5 22 L12 21 L8.5 22 L8.5 20.5 L11 19 L11 14 L2 16 L2 14 L11 9 Z" fill="#78716c" stroke="#0a0e17" stroke-width="1" stroke-linejoin="round"/></svg>On Ground</div>
     <div class="legend-section">TFRs (FAA)</div>
     <div class="legend-item"><div style="width:14px;height:8px;background:#a855f7;opacity:0.55;border:1px dashed #a855f7;flex-shrink:0"></div>Security</div>
     <div class="legend-item"><div style="width:14px;height:8px;background:#ef4444;opacity:0.55;border:1px dashed #ef4444;flex-shrink:0"></div>Hazards</div>
@@ -308,22 +494,36 @@ const CAUSAL_REFRESH_MS = 120000;  // 2 min — DAG can't change faster than its
 let coverageBbox = null; // set from /health API
 let allRegions = {};     // from /health .regions
 let activeRegion = null; // current region name
+let pinnedSlotZero = null; // /health.regions_slot_zero_pinned — used to
+                          // decide whether to follow a slot-1 swap (when
+                          // the user was on the slot-1 region) or stay
+                          // put (when the user was on the pinned region)
 let activeCellSet = new Set(); // res-4 H3 cells (primary + buffer) for active region
+// Content-hash of ACTIVE_REGIONS, set from /health and stamped on every
+// region-aware response. If a poll comes back with a different value we
+// re-fetch /health and rebuild the switcher so a swap from another tab
+// or client propagates without a manual reload.
+let regionsVersion = '';
+let _versionRefreshInFlight = false;
 
-// Region display labels are derived automatically from the server-supplied
-// region name: "san_francisco" → "San Francisco", "new_york" → "New York".
-// This keeps the map in lock-step with config.ACTIVE_REGIONS — drop a new
-// region into the server config and its button labels itself.
+// Region display labels come from /health.regions[<key>].display_name —
+// the original city string the user typed, in whatever language they
+// typed it ("København", "東京", "São Paulo"). Falls back to a snake_case
+// → Title Case derivation if the manifest hasn't loaded yet or the field
+// is missing (legacy state file with no persisted display_name).
 function regionDisplayName(name) {
   if (!name) return '';
+  const fromManifest = (allRegions && allRegions[name] && allRegions[name].display_name) || '';
+  if (fromManifest) return fromManifest;
   return String(name)
     .split('_')
     .map(part => part.length ? part[0].toUpperCase() + part.slice(1) : part)
     .join(' ');
 }
 
-// External map fallback — opens provider site for regions we don't ingest
-const OTHER_MAP_URL = 'https://www.marinetraffic.com/en/ais/home/centerx:56/centery:26/zoom:8';
+// (Legacy "Other → MarineTraffic" button retired in v0.11.0; the
+//  + New flow now drives any region the user wants, server-side
+//  geocoded.)
 
 const VESSEL_COLORS = {
   tanker: '#f43f5e', cargo: '#3b82f6', passenger: '#10b981',
@@ -351,7 +551,6 @@ const WEATHER_COLORS = {
 };
 
 let lastWeatherAlerts = [];
-let showH3CellsOverlay = false;  // toggled via legend
 
 // FAA TFR type → fill color. Keyed against the LEGAL field.
 const TFR_COLORS = {
@@ -377,7 +576,7 @@ const CAUSAL_COLORS = {
 };
 const CAUSAL_DEFAULT = '#94a3b8';
 let lastCausalLayer = null;
-let showCausalLayer = true;
+let showCausalLayer = false;  // v4.0 default: OFF (toggle in header)
 
 // Flight phase comes from the server (flight_phase field).
 // Fallback for compatibility if field is missing.
@@ -387,11 +586,17 @@ function getFlightPhase(a) {
   return 'climbing';
 }
 
+// Airplane silhouette path, pointing UP (north) at 0°.
+// Combined with icon-rotate=heading (degrees CW from north), the plane
+// renders pointing along its true heading. Path-based — does NOT depend
+// on the unicode '✈' glyph, which on iOS Safari falls back to Apple
+// Color Emoji (fixed palette + ~45° glyph orientation, ignoring SVG fill
+// and the previous transform="rotate(-90)" trick).
+const PLANE_PATH = "M12 2 L13 9 L22 14 L22 16 L13 14 L13 19 L15.5 20.5 L15.5 22 L12 21 L8.5 22 L8.5 20.5 L11 19 L11 14 L2 16 L2 14 L11 9 Z";
+
 function makePlaneIcon(color) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
-    <text x="20" y="30" text-anchor="middle" font-size="32" fill="${color}"
-          stroke="#0a0e17" stroke-width="1" paint-order="stroke"
-          transform="rotate(-90 20 20)">✈</text>
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24">
+    <path d="${PLANE_PATH}" fill="${color}" stroke="#0a0e17" stroke-width="1" stroke-linejoin="round"/>
   </svg>`;
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
@@ -624,18 +829,44 @@ function updateCounts() {
   document.getElementById('aircraft-count').textContent = countInActiveCells(lastAircraftEntities);
 }
 
-async function fetchVessels() {
+// v4.0: /api/vessels and /api/aircraft without ?region= return SF only
+// (legacy v3.1 contract). To populate every active region on the web map
+// we fan out one request per region key from /health and merge.
+async function _fetchPerRegion(path, listKey) {
+  const regions = Object.keys(allRegions || {});
+  if (regions.length === 0) {
+    // Pre-/health: fall back to legacy unfiltered call so the map isn't empty.
+    try {
+      const data = await fetch(`${API}${path}`).then(r => r.json());
+      checkRegionsVersion(data);
+      return data[listKey] || [];
+    } catch (e) { console.error(`${path} fetch error:`, e); return null; }
+  }
   try {
-    const data = await fetch(`${API}/api/vessels`).then(r => r.json());
-    return data.vessels.map(v => vesselToFeature(v));
-  } catch (e) { console.error('Vessel fetch error:', e); return null; }
+    const responses = await Promise.all(
+      regions.map(name =>
+        fetch(`${API}${path}?region=${encodeURIComponent(name)}`).then(r => r.json())
+      )
+    );
+    // Use the first response's regions_version for drift detection — they
+    // share a snapshot since they fire in parallel.
+    if (responses.length > 0) checkRegionsVersion(responses[0]);
+    const merged = [];
+    for (const r of responses) {
+      if (r && Array.isArray(r[listKey])) merged.push(...r[listKey]);
+    }
+    return merged;
+  } catch (e) { console.error(`${path} fetch error:`, e); return null; }
+}
+
+async function fetchVessels() {
+  const items = await _fetchPerRegion('/api/vessels', 'vessels');
+  return items === null ? null : items.map(v => vesselToFeature(v));
 }
 
 async function fetchAircraft() {
-  try {
-    const data = await fetch(`${API}/api/aircraft`).then(r => r.json());
-    return data.aircraft.map(a => aircraftToFeature(a));
-  } catch (e) { console.error('Aircraft fetch error:', e); return null; }
+  const items = await _fetchPerRegion('/api/aircraft', 'aircraft');
+  return items === null ? null : items.map(a => aircraftToFeature(a));
 }
 
 function showVesselInfo(p) {
@@ -710,6 +941,7 @@ async function fetchWeatherAlerts() {
   try {
     const r = await fetch(`${API}/api/weather/alerts`);
     const d = await r.json();
+    checkRegionsVersion(d);
     return d.alerts || [];
   } catch (e) {
     console.error('weather alerts fetch error', e);
@@ -740,24 +972,7 @@ function updateWeatherAlerts(alerts) {
       },
     }));
 
-  // Build H3 cell overlay FeatureCollection (mixed-res compact cells per alert)
-  const cellFeatures = alerts
-    .filter(a => a.h3_cells_geometry && a.h3_cells_geometry.coordinates && a.h3_cells_geometry.coordinates.length)
-    .map(a => ({
-      type: 'Feature',
-      geometry: a.h3_cells_geometry,
-      properties: {
-        id: a.id,
-        severity: a.severity || 'unknown',
-        cell_count: (a.h3_cells_compact || []).length,
-        color: WEATHER_COLORS[a.severity] || WEATHER_COLORS.unknown,
-      },
-    }));
-
   setSourceData('weather-polygons', { type: 'FeatureCollection', features: polyFeatures });
-  setSourceData('weather-h3-cells', { type: 'FeatureCollection', features: cellFeatures });
-
-  document.getElementById('weather-count').textContent = alerts.length;
 }
 
 function showWeatherInfo(props) {
@@ -785,6 +1000,7 @@ async function fetchTFRs() {
   try {
     const r = await fetch(`${API}/api/tfr`);
     const d = await r.json();
+    checkRegionsVersion(d);
     return d.tfrs || [];
   } catch (e) {
     console.error('TFR fetch error', e);
@@ -814,7 +1030,6 @@ function updateTFRs(tfrs) {
     }));
 
   setSourceData('tfr-polygons', { type: 'FeatureCollection', features });
-  document.getElementById('tfr-count').textContent = tfrs.length;
 }
 
 function showTFRInfo(props) {
@@ -841,7 +1056,9 @@ function showTFRInfo(props) {
 async function fetchCausalLayer() {
   try {
     const r = await fetch(`${API}/api/causal/layer`);
-    return await r.json();
+    const d = await r.json();
+    checkRegionsVersion(d);
+    return d;
   } catch (e) {
     console.error('causal layer fetch error', e);
     return null;
@@ -899,9 +1116,6 @@ function updateCausalLayer(layer) {
 
   setSourceData('causal-nodes', { type: 'FeatureCollection', features: nodeFeatures });
   setSourceData('causal-edges', { type: 'FeatureCollection', features: edgeFeatures });
-
-  document.getElementById('causal-count').textContent =
-    `${layer.node_count}n/${layer.edge_count}e`;
 }
 
 function showCausalNodeInfo(props) {
@@ -943,14 +1157,6 @@ function setCausalLayerVisibility(visible) {
   showCausalLayer = visible;
   const vis = visible ? 'visible' : 'none';
   ['causal-edges-line', 'causal-nodes-circles', 'causal-nodes-halo'].forEach(id => {
-    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
-  });
-}
-
-function setH3OverlayVisibility(visible) {
-  showH3CellsOverlay = visible;
-  const vis = visible ? 'visible' : 'none';
-  ['weather-h3-cells-fill', 'weather-h3-cells-outline'].forEach(id => {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
   });
 }
@@ -1081,6 +1287,59 @@ function initLayers() {
 // --- Init & polling ---
 let _advisoryDismissed = false;
 
+// Show a transient toast under the header. Used after /regions/swap so
+// the user knows the empty map isn't broken — feeds populate over the
+// next ~60 s once the AIS subscription reconnects to the new bbox and
+// the next ADS-B poll fires.
+//
+// The 6-second auto-dismiss only starts AFTER the pan-to-new-city
+// animation finishes (MapLibre 'moveend'). Otherwise on slow camera
+// flights the toast would expire mid-pan and the user wouldn't get a
+// full 6 s to read it once the new city is on screen. Belt-and-
+// suspenders: if 'moveend' somehow doesn't arrive in 4 s (no fitBounds
+// fired, animation skipped, etc.) we start the countdown anyway so the
+// toast can never get stuck.
+let _swapToastTimer = null;
+let _swapToastMoveEndHandler = null;
+let _swapToastSafetyTimer = null;
+function showSwapToast(displayName) {
+  const el = document.getElementById('swap-toast');
+  if (!el) return;
+  el.textContent = `Loading ${displayName} — feeds will populate over ~60 s`;
+  el.classList.add('visible');
+
+  // Cancel any prior toast's pending work (rapid back-to-back swaps).
+  clearTimeout(_swapToastTimer); _swapToastTimer = null;
+  clearTimeout(_swapToastSafetyTimer); _swapToastSafetyTimer = null;
+  if (_swapToastMoveEndHandler) {
+    map.off('moveend', _swapToastMoveEndHandler);
+    _swapToastMoveEndHandler = null;
+  }
+
+  const startCountdown = () => {
+    if (_swapToastTimer) return; // already counting down
+    _swapToastTimer = setTimeout(() => {
+      el.classList.remove('visible');
+    }, 6000);
+  };
+
+  _swapToastMoveEndHandler = () => {
+    _swapToastMoveEndHandler = null;
+    clearTimeout(_swapToastSafetyTimer); _swapToastSafetyTimer = null;
+    startCountdown();
+  };
+  map.once('moveend', _swapToastMoveEndHandler);
+
+  // Safety net: pan should land in well under 4 s.
+  _swapToastSafetyTimer = setTimeout(() => {
+    if (_swapToastMoveEndHandler) {
+      map.off('moveend', _swapToastMoveEndHandler);
+      _swapToastMoveEndHandler = null;
+    }
+    startCountdown();
+  }, 4000);
+}
+
 function updateAdvisories(advisories) {
   const banner = document.getElementById('advisory-banner');
   if (advisories.length && !_advisoryDismissed) {
@@ -1097,6 +1356,14 @@ async function refreshAdvisories() {
     const res = await fetch(`${API}/health`);
     const health = await res.json();
     if (health.regions) allRegions = health.regions;
+    // /health is itself the source of truth, so reconcile the version cache
+    // here too — useful when /health is the only call still ticking.
+    if (health.regions_version && regionsVersion && health.regions_version !== regionsVersion) {
+      regionsVersion = health.regions_version;
+      rebuildRegionSwitcher();
+    } else if (health.regions_version) {
+      regionsVersion = health.regions_version;
+    }
     const regionData = activeRegion && allRegions[activeRegion] ? allRegions[activeRegion] : health.coverage;
     updateAdvisories(regionData.advisories || []);
   } catch (e) { console.error('Advisory refresh error:', e); }
@@ -1162,7 +1429,6 @@ function switchRegion(name) {
   activeCellSet = activeCellsForRegion(name);
 
   // Update UI
-  document.getElementById('region-subtitle').textContent = regionDisplayName(name) + ' — Live';
   document.querySelectorAll('.region-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.region === name);
   });
@@ -1179,12 +1445,205 @@ function switchRegion(name) {
   updateAdvisories(region.advisories || []);
 }
 
+// Render (or re-render) the region switcher: one button per active region
+// plus a trailing "+ New" button that opens the region-swap modal. Called
+// at startup and again after every regions_version change so a swap from
+// another tab/client (or the iOS app) is reflected without a manual reload.
+function rebuildRegionSwitcher() {
+  const switcher = document.getElementById('region-switcher');
+  if (!switcher) return;
+  switcher.innerHTML = '';
+  Object.keys(allRegions).forEach(name => {
+    const btn = document.createElement('button');
+    btn.className = 'region-btn' + (name === activeRegion ? ' active' : '');
+    btn.dataset.region = name;
+    btn.textContent = regionDisplayName(name);
+    btn.onclick = () => switchRegion(name);
+    switcher.appendChild(btn);
+  });
+  // "+ New" button — opens the city-name modal which POSTs /regions/swap.
+  const newBtn = document.createElement('button');
+  newBtn.className = 'region-btn';
+  newBtn.textContent = '+ New';
+  newBtn.title = 'Replace slot 2 with a new region (server-side geocoded)';
+  newBtn.onclick = openRegionModal;
+  switcher.appendChild(newBtn);
+}
+
+function openRegionModal() {
+  const back = document.getElementById('region-modal-backdrop');
+  const input = document.getElementById('region-modal-input');
+  const err = document.getElementById('region-modal-error');
+  err.textContent = '';
+  input.value = '';
+  back.classList.add('visible');
+  setTimeout(() => input.focus(), 30);
+}
+
+function closeRegionModal() {
+  document.getElementById('region-modal-backdrop').classList.remove('visible');
+}
+
+// POST /regions/swap with the user's free-text city name. The server
+// geocodes, snaps to an H3 region, mutates ACTIVE_REGIONS, and bumps
+// regions_version. We then refetch /health so the switcher reflects
+// the new active set immediately (rather than waiting for the next
+// poll-driven version-mismatch detection).
+async function submitRegionSwap() {
+  const input = document.getElementById('region-modal-input');
+  const err = document.getElementById('region-modal-error');
+  const submitBtn = document.getElementById('region-modal-submit');
+  const city = (input.value || '').trim();
+  if (!city) { err.textContent = 'Please enter a city name.'; return; }
+
+  err.textContent = '';
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Switching…';
+  try {
+    const resp = await fetch(`${API}/regions/swap`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ city }),
+    });
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try {
+        const body = await resp.json();
+        const detail = body && body.detail;
+        if (detail && detail.message) msg = detail.message;
+        else if (typeof detail === 'string') msg = detail;
+      } catch (_) {}
+      if (resp.status === 429) {
+        const ra = resp.headers.get('Retry-After');
+        if (ra) msg += ` (retry in ${ra}s)`;
+      }
+      err.textContent = msg;
+      return;
+    }
+    const body = await resp.json();
+    closeRegionModal();
+    // Force a /health refresh and a hard switch to the new region.
+    // We bypass refreshHealth() here because a concurrent poll-driven
+    // version-mismatch refresh may have already claimed the in-flight
+    // guard, and we want the new city to win unconditionally rather
+    // than coalesce away and leave the map on San Francisco.
+    try {
+      const health = await fetch(`${API}/health`).then(r => r.json());
+      allRegions = health.regions || {};
+      regionsVersion = health.regions_version || regionsVersion;
+      if (health.regions_slot_zero_pinned) pinnedSlotZero = health.regions_slot_zero_pinned;
+      rebuildRegionSwitcher();
+      if (allRegions[body.new_slot_one]) {
+        switchRegion(body.new_slot_one);
+      }
+      showSwapToast(regionDisplayName(body.new_slot_one));
+    } catch (e2) {
+      console.error('Post-swap /health refresh failed:', e2);
+    }
+  } catch (e) {
+    err.textContent = `Network error: ${e.message || e}`;
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Switch';
+  }
+}
+
+// Re-fetch /health and reconcile every piece of region-derived state:
+// allRegions map, regionsVersion, switcher buttons, coverage cells, and
+// active region.
+//
+// Active-region resolution priority:
+//   1. preferRegion override (caller-supplied).
+//   2. Current activeRegion if it's still present.
+//   3. If the user was viewing the pinned (slot-0) region, stay there.
+//   4. Otherwise the user was viewing a slot-1+ region that just changed
+//      under them (e.g. iOS app swapped to a new city) — follow it to
+//      whatever non-pinned region is now active. Snapping back to SF
+//      would punish the user for someone else's swap.
+async function refreshHealth({ preferRegion } = {}) {
+  if (_versionRefreshInFlight) return;
+  _versionRefreshInFlight = true;
+  try {
+    const res = await fetch(`${API}/health`);
+    const health = await res.json();
+    allRegions = health.regions || {};
+    regionsVersion = health.regions_version || '';
+    if (health.regions_slot_zero_pinned) pinnedSlotZero = health.regions_slot_zero_pinned;
+
+    const keys = Object.keys(allRegions);
+    let fallback;
+    if (activeRegion === pinnedSlotZero) {
+      fallback = pinnedSlotZero;
+    } else {
+      // User was on a non-pinned slot. Follow it to whichever non-pinned
+      // region is now active. If somehow only the pinned region remains
+      // (active_regions shrank), we have no choice but to land there.
+      fallback = keys.find(k => k !== pinnedSlotZero) || keys[0] || null;
+    }
+
+    const priorRegion = activeRegion;
+    let target = preferRegion && allRegions[preferRegion]
+      ? preferRegion
+      : (activeRegion && allRegions[activeRegion]
+          ? activeRegion
+          : fallback);
+    if (!target) return;
+
+    activeRegion = target;
+    try { localStorage.setItem('spatial-agents-region', target); } catch (_) {}
+
+    rebuildRegionSwitcher();
+
+    const region = allRegions[target];
+    if (region) {
+      coverageBbox = bboxFromGeometry(region.geometry);
+      H3_CELLS = (region.h3_cells || {})[String(RESOLUTION)] || [];
+      activeCellSet = activeCellsForRegion(target);
+      updateCoverageCells();
+      fitToCoverage();
+      _advisoryDismissed = false;
+      updateAdvisories(region.advisories || []);
+      updateCounts();
+
+      // If this refresh moved us to a different non-pinned region — i.e.
+      // someone else (iOS app, another browser tab) just swapped slot 1
+      // and our map auto-followed — flash the populate-wait toast. This
+      // catches the indirect-swap path; the direct path (user clicked
+      // + New here) fires its own toast in submitRegionSwap().
+      if (
+        priorRegion && target !== priorRegion &&
+        target !== pinnedSlotZero && !preferRegion
+      ) {
+        showSwapToast(regionDisplayName(target));
+      }
+    }
+  } catch (e) {
+    console.error('refreshHealth failed:', e);
+  } finally {
+    _versionRefreshInFlight = false;
+  }
+}
+
+// Compare the version stamp on any region-aware response against our
+// cached value. On mismatch trigger a single coalesced /health refresh.
+function checkRegionsVersion(payload) {
+  if (!payload || typeof payload !== 'object') return;
+  const v = payload.regions_version;
+  if (!v) return;
+  if (!regionsVersion) { regionsVersion = v; return; }
+  if (v !== regionsVersion) {
+    console.info('regions_version drift:', regionsVersion, '→', v, '— refreshing /health');
+    refreshHealth();
+  }
+}
+
 map.on('load', async () => {
   // Fetch coverage and H3 cells from server
   try {
     const healthRes = await fetch(`${API}/health`);
     const health = await healthRes.json();
     allRegions = health.regions || {};
+    pinnedSlotZero = health.regions_slot_zero_pinned || null;
     let stored = null;
     try { stored = localStorage.getItem('spatial-agents-region'); } catch (_) {}
     const defaultRegion = (stored && allRegions[stored])
@@ -1197,24 +1656,10 @@ map.on('load', async () => {
     activeCellSet = activeCellsForRegion(defaultRegion);
     updateAdvisories(defaultRegionData.advisories || []);
 
-    // Build region switcher buttons
-    const switcher = document.getElementById('region-switcher');
-    Object.keys(allRegions).forEach(name => {
-      const btn = document.createElement('button');
-      btn.className = 'region-btn' + (name === defaultRegion ? ' active' : '');
-      btn.dataset.region = name;
-      btn.textContent = regionDisplayName(name);
-      btn.onclick = () => switchRegion(name);
-      switcher.appendChild(btn);
-    });
-
-    // "Other" button — redirects to external provider map for regions we don't ingest
-    const otherBtn = document.createElement('button');
-    otherBtn.className = 'region-btn';
-    otherBtn.textContent = 'Other';
-    otherBtn.onclick = () => { window.open(OTHER_MAP_URL, '_blank', 'noopener'); };
-    switcher.appendChild(otherBtn);
-    document.getElementById('region-subtitle').textContent = regionDisplayName(defaultRegion) + ' — Live';
+    regionsVersion = health.regions_version || '';
+    // Build region switcher buttons (extracted so re-render after a swap
+    // can reuse the same code path).
+    rebuildRegionSwitcher();
   } catch (e) {
     console.error('Failed to fetch coverage from /health, using defaults', e);
     coverageBbox = { min_lat: 37.25, max_lat: 38.2, min_lng: -122.78, max_lng: -121.8 };
@@ -1273,9 +1718,8 @@ map.on('load', async () => {
   setSourceData('vessel-trails', empty);
   setSourceData('aircraft-trails', empty);
 
-  // Weather sources — initialized empty; populated by updateWeatherAlerts.
+  // Weather source — initialized empty; populated by updateWeatherAlerts.
   setSourceData('weather-polygons', empty);
-  setSourceData('weather-h3-cells', empty);
 
   // TFR source — initialized empty; populated by updateTFRs.
   setSourceData('tfr-polygons', empty);
@@ -1295,18 +1739,6 @@ map.on('load', async () => {
     id: 'weather-polygons-outline', type: 'line', source: 'weather-polygons',
     paint: { 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-opacity': 0.85 },
   });
-  // H3 cell overlay (toggle on demand) — fill + outline of the compact cell set
-  map.addLayer({
-    id: 'weather-h3-cells-fill', type: 'fill', source: 'weather-h3-cells',
-    layout: { visibility: 'none' },
-    paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.08 },
-  });
-  map.addLayer({
-    id: 'weather-h3-cells-outline', type: 'line', source: 'weather-h3-cells',
-    layout: { visibility: 'none' },
-    paint: { 'line-color': ['get', 'color'], 'line-width': 1, 'line-dasharray': [2, 2], 'line-opacity': 0.7 },
-  });
-
   // Click handler for weather polygons → info panel
   map.on('click', 'weather-polygons-fill', (e) => {
     if (e.features && e.features[0]) showWeatherInfo(e.features[0].properties);
@@ -1343,9 +1775,10 @@ map.on('load', async () => {
 
   // Causal DAG layers — drawn on top so node circles read clearly over
   // entities and polygons. Edges are drawn first so node circles overdraw
-  // line endpoints.
+  // line endpoints. Hidden by default (v4.0); user toggles via header.
   map.addLayer({
     id: 'causal-edges-line', type: 'line', source: 'causal-edges',
+    layout: { visibility: 'none' },
     paint: {
       'line-color': ['get', 'color'],
       'line-width': ['interpolate', ['linear'], ['get', 'strength'],
@@ -1356,6 +1789,7 @@ map.on('load', async () => {
   });
   map.addLayer({
     id: 'causal-nodes-halo', type: 'circle', source: 'causal-nodes',
+    layout: { visibility: 'none' },
     paint: {
       'circle-color': ['get', 'color'],
       'circle-radius': ['interpolate', ['linear'], ['zoom'],
@@ -1368,6 +1802,7 @@ map.on('load', async () => {
   });
   map.addLayer({
     id: 'causal-nodes-circles', type: 'circle', source: 'causal-nodes',
+    layout: { visibility: 'none' },
     paint: {
       'circle-color': ['get', 'color'],
       'circle-radius': ['interpolate', ['linear'], ['zoom'],
@@ -1386,24 +1821,6 @@ map.on('load', async () => {
     map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
   });
-
-  // Causal toggle button
-  const causalBtn = document.getElementById('causal-toggle');
-  if (causalBtn) {
-    causalBtn.onclick = () => {
-      setCausalLayerVisibility(!showCausalLayer);
-      causalBtn.classList.toggle('active', showCausalLayer);
-    };
-  }
-
-  // H3-cells overlay toggle button in the header
-  const h3Btn = document.getElementById('h3-toggle');
-  if (h3Btn) {
-    h3Btn.onclick = () => {
-      setH3OverlayVisibility(!showH3CellsOverlay);
-      h3Btn.classList.toggle('active', showH3CellsOverlay);
-    };
-  }
 
   initLayers();
 
@@ -1428,6 +1845,18 @@ map.on('load', async () => {
     updateCausalLayer(await fetchCausalLayer());
   }, CAUSAL_REFRESH_MS);
   setInterval(refreshAdvisories, 300000); // 5 minutes
+
+  // --- Region modal wiring ---
+  document.getElementById('region-modal-cancel').onclick = closeRegionModal;
+  document.getElementById('region-modal-submit').onclick = submitRegionSwap;
+  document.getElementById('region-modal-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); submitRegionSwap(); }
+    else if (e.key === 'Escape') { closeRegionModal(); }
+  });
+  document.getElementById('region-modal-backdrop').addEventListener('click', (e) => {
+    // Click outside the dialog (on the backdrop itself) dismisses
+    if (e.target.id === 'region-modal-backdrop') closeRegionModal();
+  });
 });
 </script>
 

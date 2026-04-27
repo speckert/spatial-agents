@@ -9,6 +9,9 @@ Version History:
     0.1.0  2026-04-25  Initial TFR endpoint with optional ?region= filter,
                        same canonical pattern as /api/weather/alerts and
                        /api/{vessels,aircraft} — Claude 4.7
+    0.2.0  2026-04-26  regions_version stamped on every response so
+                       clients can detect a runtime region swap and
+                       re-fetch /health — Claude 4.7
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from spatial_agents.config import REGION_CELLS
+from spatial_agents.config import REGION_CELLS, regions_version
 from spatial_agents.models import TFRsResponse
 
 router = APIRouter()
@@ -61,6 +64,7 @@ async def tfrs(
             tfrs=[],
             count=0,
             last_updated=datetime.now(timezone.utc),
+            regions_version=regions_version(),
         )
 
     items = _feed_manager.get_latest_tfrs()
@@ -74,4 +78,5 @@ async def tfrs(
         tfrs=items,
         count=len(items),
         last_updated=last,
+        regions_version=regions_version(),
     )

@@ -14,6 +14,17 @@ Version History:
                        payload (geometry is canonical). Internal
                        _REGION_BBOXES kept only for h3_cells sampling.
                        Tested against legacy iOS 3.1 client — Claude 4.7
+    0.7.0  2026-04-26  Per-region structures (bboxes, h3 cells, geometry)
+                       computed on every /health call instead of at
+                       import — required because ACTIVE_REGIONS is now
+                       runtime-mutable via RegionsManager. Adds
+                       regions_version + regions_slot_zero_pinned to
+                       the response — Claude 4.7
+    0.8.0  2026-04-26  CoverageResponse now carries display_name, looked
+                       up from the injected RegionsManager. Falls back
+                       to a snake_case → Title Case derivation if the
+                       manager hasn't been wired up yet (e.g. tests
+                       that build the response directly) — Claude 4.7
 """
 
 from __future__ import annotations
@@ -29,9 +40,9 @@ from spatial_agents.config import (
     ACTIVE_REGIONS,
     REGION_ADVISORIES,
     REGION_CELLS,
-    REGION_NAME,
     REGIONS,
     config,
+    regions_version,
 )
 from spatial_agents.models import (
     CoverageBbox,
@@ -46,11 +57,22 @@ router = APIRouter()
 
 _start_time = time.monotonic()
 
-# Per-region bounding boxes and H3 cells
-_REGION_BBOXES: dict[str, CoverageBbox] = {
-    name: CoverageBbox(min_lat=r[0], max_lat=r[1], min_lng=r[2], max_lng=r[3])
-    for name, r in ((n, REGIONS[n]) for n in ACTIVE_REGIONS)
-}
+# Lazy reference to regions manager — injected at startup by main.py.
+# Used to resolve a region key into its human-readable display name.
+_regions_manager: Any = None
+
+
+def set_regions_manager(manager: Any) -> None:
+    """Inject the running RegionsManager (called at app startup)."""
+    global _regions_manager
+    _regions_manager = manager
+
+
+def _display_name_for(name: str) -> str:
+    """Resolve a region key to a display label (manager wins; fallback OK)."""
+    if _regions_manager is not None:
+        return _regions_manager.get_display_name(name)
+    return name.replace("_", " ").title()
 
 
 def _compute_h3_cells(bbox: CoverageBbox) -> dict[int, list[str]]:
@@ -65,11 +87,6 @@ def _compute_h3_cells(bbox: CoverageBbox) -> dict[int, list[str]]:
                 cells.add(h3.latlng_to_cell(lat, lng, res))
         h3_cells[res] = sorted(cells)
     return h3_cells
-
-
-_REGION_H3: dict[str, dict[int, list[str]]] = {
-    name: _compute_h3_cells(bbox) for name, bbox in _REGION_BBOXES.items()
-}
 
 
 def _cells_to_multipolygon(cells: list[str]) -> dict:
@@ -88,14 +105,33 @@ def _cells_to_multipolygon(cells: list[str]) -> dict:
     return {"type": "MultiPolygon", "coordinates": polygons}
 
 
-_REGION_GEOMETRY: dict[str, dict] = {
-    name: _cells_to_multipolygon(REGION_CELLS[name]["all"])  # type: ignore[arg-type]
-    for name in ACTIVE_REGIONS
-}
+def _build_region_coverage(name: str) -> CoverageResponse | None:
+    """Build a CoverageResponse for one region using the current REGION_CELLS.
 
-# Backward compat — first active region
-_BBOX = _REGION_BBOXES[REGION_NAME]
-_h3_cells = _REGION_H3[REGION_NAME]
+    Returns None if the region isn't registered yet (defensive — should
+    not happen during normal operation since RegionsManager registers
+    regions before adding them to ACTIVE_REGIONS).
+    """
+    cells = REGION_CELLS.get(name)
+    bbox_tuple = REGIONS.get(name)
+    if cells is None or bbox_tuple is None:
+        return None
+    bbox = CoverageBbox(
+        min_lat=bbox_tuple[0],
+        max_lat=bbox_tuple[1],
+        min_lng=bbox_tuple[2],
+        max_lng=bbox_tuple[3],
+    )
+    return CoverageResponse(
+        region=name,
+        display_name=_display_name_for(name),
+        h3_cells=_compute_h3_cells(bbox),
+        primary_cell=str(cells["primary"]),
+        buffer_cells=list(cells["buffer"]),  # type: ignore[arg-type]
+        geometry=_cells_to_multipolygon(cells["all"]),  # type: ignore[arg-type]
+        advisories=_build_advisories(name),
+    )
+
 
 # Lazy reference to feed manager
 _feed_manager = None
@@ -106,7 +142,7 @@ def set_feed_manager(manager: Any) -> None:
     _feed_manager = manager
 
 
-def _build_advisories(region: str = REGION_NAME) -> list[str]:
+def _build_advisories(region: str | None = None) -> list[str]:
     """Build dynamic advisories from region config and live feed status."""
     advisories = list(REGION_ADVISORIES.get(region, []))
 
@@ -161,17 +197,26 @@ async def health() -> HealthResponse:
     else:
         status = "error"
 
-    regions = {
-        name: CoverageResponse(
-            region=name,
-            h3_cells=_REGION_H3[name],
-            primary_cell=str(REGION_CELLS[name]["primary"]),
-            buffer_cells=list(REGION_CELLS[name]["buffer"]),  # type: ignore[arg-type]
-            geometry=_REGION_GEOMETRY[name],
-            advisories=_build_advisories(name),
+    # Build per-region coverage at request time so a slot-1 swap is
+    # reflected in the very next /health response.
+    regions: dict[str, CoverageResponse] = {}
+    for name in ACTIVE_REGIONS:
+        cov = _build_region_coverage(name)
+        if cov is not None:
+            regions[name] = cov
+
+    # Backward-compat: `coverage` mirrors the first active region (slot 0).
+    coverage = regions.get(ACTIVE_REGIONS[0]) if ACTIVE_REGIONS else None
+    if coverage is None:
+        # Defensive fallback for an empty/broken active set.
+        coverage = CoverageResponse(
+            region="",
+            h3_cells={},
+            primary_cell="",
+            buffer_cells=[],
+            geometry={},
+            advisories=["Active region set is empty — server misconfigured."],
         )
-        for name in ACTIVE_REGIONS
-    }
 
     return HealthResponse(
         status=status,
@@ -183,8 +228,10 @@ async def health() -> HealthResponse:
             resolutions=config.tiling.resolutions,
             context_window=config.fm.context_window_size,
         ),
-        coverage=regions[REGION_NAME],
+        coverage=coverage,
         regions=regions,
+        regions_version=regions_version(),
+        regions_slot_zero_pinned="san_francisco",
     )
 
 
