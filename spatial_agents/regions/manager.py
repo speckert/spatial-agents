@@ -287,6 +287,28 @@ class RegionsManager:
             ACTIVE_REGIONS, regions_version(), len(self._custom_centers),
         )
 
+    # --- Durable region identity -------------------------------------------
+
+    def region_key(self, region: str) -> str | None:
+        """Durable, geography-derived filesystem identity for a region.
+
+        The key is the **center cell of the region's 7-hex display flower**
+        (one center + six grid_disk neighbors) at REGION_RESOLUTION — i.e. the
+        `primary` cell already computed in REGION_CELLS to draw the flower.
+        Reuse it; never recompute ad hoc.
+
+        Stable across slot reordering and swap-out/swap-in: San Francisco
+        always maps to the same key regardless of which slot holds it. This is
+        the single source of truth for per-region tile-cache directory names.
+        The H3 hex string is already filesystem-safe (used verbatim).
+
+        Returns None if the region was never registered.
+        """
+        cells = REGION_CELLS.get(region)
+        if cells is None:
+            return None
+        return str(cells["primary"])
+
     # --- Display names -----------------------------------------------------
 
     def get_display_name(self, name: str) -> str:

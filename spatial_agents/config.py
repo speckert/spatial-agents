@@ -168,6 +168,15 @@ class TilingConfig(BaseModel):
         default="geojson",
         description="Tile output format: geojson or protobuf",
     )
+    retention_hours: int = Field(
+        default=24,
+        description="Keep tiles whose temporal bin is newer than this; "
+                    "0 disables time-based expiration.",
+    )
+    reaper_interval_seconds: int = Field(
+        default=600,
+        description="How often the tile-expiration reaper runs (seconds).",
+    )
 
 
 class FMConfig(BaseModel):

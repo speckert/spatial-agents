@@ -112,10 +112,38 @@ class TemporalBinner:
         now = datetime.now(timezone.utc)
         return bin_key(now, self.get_bin_size(resolution))
 
-    def is_bin_expired(self, key: str, resolution: int) -> bool:
-        """Check whether a bin key is older than the current bin window."""
+    def is_bin_expired(
+        self,
+        key: str,
+        resolution: int,
+        max_age_hours: float | None = None,
+    ) -> bool:
+        """Check whether a temporal-bin key is expired.
+
+        Two modes:
+          * max_age_hours is None (legacy): expired iff the bin precedes the
+            current bin window for this resolution.
+          * max_age_hours given (reaper): expired iff the bin's start time is
+            older than `max_age_hours` before now. Parses the bin key only —
+            never opens a file. An unparseable key is treated as NOT expired
+            (defensive: never delete what we can't date).
+
+        The constant "live" key never expires here (res-7 tiles overwrite in
+        place; the reaper handles them by mtime or skips them entirely).
+        """
         if key == "live":
             return False  # Live bins don't expire
 
-        current = self.current_bin_key(resolution)
-        return key < current
+        if max_age_hours is None:
+            current = self.current_bin_key(resolution)
+            return key < current
+
+        try:
+            bin_start = datetime.strptime(key, "%Y%m%dT%H%M%S").replace(
+                tzinfo=timezone.utc
+            )
+        except ValueError:
+            return False  # Unparseable bin name — leave it alone.
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+        return bin_start < cutoff

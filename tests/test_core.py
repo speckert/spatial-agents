@@ -238,6 +238,7 @@ class TestTileBuilder:
         vessels = [make_vessel()]
 
         path = builder.build_tile(
+            region_key="841f24bffffffff",
             cell_id="842831dffffffff",
             resolution=4,
             temporal_bin="1hour",
@@ -245,6 +246,8 @@ class TestTileBuilder:
         )
 
         assert path.exists()
+        # Region key is the top-level path segment.
+        assert "841f24bffffffff" in path.parts
         data = json.loads(path.read_text())
         assert data["metadata"]["cell_id"] == "842831dffffffff"
         assert data["metadata"]["vessel_count"] == 1
@@ -264,8 +267,11 @@ class TestTileBuilder:
         v2 = make_vessel(mmsi="002", lat=37.81, lng=-122.26)
         v2.h3_cells = indexer.position_to_cells(37.81, -122.26)
 
-        paths = builder.build_tiles_for_records([v1, v2], [], resolution=5)
+        paths = builder.build_tiles_for_records(
+            [v1, v2], [], resolution=5, region_key="841f24bffffffff"
+        )
         assert len(paths) >= 1  # At least one tile generated
+        assert all("841f24bffffffff" in p.parts for p in paths)
 
 
 # ---------------------------------------------------------------------------

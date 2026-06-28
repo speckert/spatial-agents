@@ -121,7 +121,9 @@ async def run_demo(serve: bool = False, verbose: bool = False) -> None:
     tile_dir = Path(tempfile.mkdtemp(prefix="spatial_agents_tiles_"))
     builder = TileBuilder(output_dir=tile_dir)
 
-    all_paths = builder.build_all_resolutions(SAMPLE_VESSELS, SAMPLE_AIRCRAFT)
+    all_paths = builder.build_all_resolutions(
+        SAMPLE_VESSELS, SAMPLE_AIRCRAFT, region_key="841f24bffffffff"
+    )
     total_tiles = sum(len(paths) for paths in all_paths.values())
 
     print(f"  Tile output dir: {tile_dir}")

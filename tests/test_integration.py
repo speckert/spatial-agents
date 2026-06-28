@@ -41,7 +41,7 @@ class TestFullPipeline:
     def test_tile_generation_from_samples(self, sample_vessels, sample_aircraft, tile_builder):
         """Generate tiles from sample data and verify content."""
         paths = tile_builder.build_tiles_for_records(
-            sample_vessels, sample_aircraft, resolution=5
+            sample_vessels, sample_aircraft, resolution=5, region_key="841f24bffffffff"
         )
         assert len(paths) > 0
 
@@ -54,7 +54,9 @@ class TestFullPipeline:
 
     def test_tile_all_resolutions(self, sample_vessels, sample_aircraft, tile_builder):
         """Generate tiles at all resolutions."""
-        all_paths = tile_builder.build_all_resolutions(sample_vessels, sample_aircraft)
+        all_paths = tile_builder.build_all_resolutions(
+            sample_vessels, sample_aircraft, region_key="841f24bffffffff"
+        )
 
         for res in [3, 4, 5, 6, 7]:
             assert res in all_paths, f"Missing resolution {res}"
@@ -64,7 +66,7 @@ class TestFullPipeline:
         from spatial_agents.spatial.geojson_export import tile_to_geojson
 
         paths = tile_builder.build_tiles_for_records(
-            sample_vessels, sample_aircraft, resolution=5
+            sample_vessels, sample_aircraft, resolution=5, region_key="841f24bffffffff"
         )
         assert len(paths) > 0
 
@@ -254,6 +256,6 @@ class TestFeedManagerIntegration:
     def test_health_status(self, feed_manager):
         """Health endpoint returns valid status."""
         health = feed_manager.health()
-        assert len(health) == 2  # AIS + ADS-B feeds
-        for feed in health:
-            assert feed.name in ("ais", "adsb")
+        # Four feeds now: AIS + ADS-B + NWS weather + FAA TFR.
+        assert len(health) == 4
+        assert {feed.name for feed in health} == {"ais", "adsb", "weather", "tfr"}

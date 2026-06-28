@@ -63,6 +63,7 @@ class TileBuilder:
 
     def build_tile(
         self,
+        region_key: str,
         cell_id: str,
         resolution: int,
         temporal_bin: str,
@@ -70,7 +71,11 @@ class TileBuilder:
         aircraft: list[AircraftRecord] | None = None,
     ) -> Path:
         """
-        Generate a single tile file.
+        Generate a single tile file under the region's subtree.
+
+        Args:
+            region_key: Durable region identity (center-flower H3 cell);
+                becomes the top-level path segment so regions stay isolated.
 
         Returns:
             Path to the written tile file.
@@ -101,7 +106,7 @@ class TileBuilder:
         )
 
         # Write file
-        tile_path = self._tile_path(cell_id, resolution, temporal_bin)
+        tile_path = self._tile_path(region_key, cell_id, resolution, temporal_bin)
         tile_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Use orjson for fast serialization
@@ -124,11 +129,14 @@ class TileBuilder:
         vessels: list[VesselRecord],
         aircraft: list[AircraftRecord],
         resolution: int,
+        region_key: str,
     ) -> list[Path]:
         """
         Build tiles for all H3 cells occupied by the given records at a specific resolution.
 
-        Groups records by their H3 cell assignment and builds one tile per cell.
+        Groups records by their H3 cell assignment and builds one tile per cell,
+        all under `region_key`'s subtree. Callers must pass records that belong
+        to that one region (partition the feed batch by region first).
         """
         # Group vessels by cell
         vessel_cells: dict[str, list[VesselRecord]] = {}
@@ -152,6 +160,7 @@ class TileBuilder:
 
         for cell_id in all_cells:
             path = self.build_tile(
+                region_key=region_key,
                 cell_id=cell_id,
                 resolution=resolution,
                 temporal_bin=temporal_bin,
@@ -161,8 +170,8 @@ class TileBuilder:
             paths.append(path)
 
         logger.info(
-            "Built %d tiles at resolution %d (bin: %s)",
-            len(paths), resolution, temporal_bin,
+            "Built %d tiles at resolution %d (region: %s, bin: %s)",
+            len(paths), resolution, region_key, temporal_bin,
         )
         return paths
 
@@ -170,20 +179,27 @@ class TileBuilder:
         self,
         vessels: list[VesselRecord],
         aircraft: list[AircraftRecord],
+        region_key: str,
     ) -> dict[int, list[Path]]:
-        """Build tiles across all configured resolutions."""
+        """Build tiles across all configured resolutions for one region."""
         result: dict[int, list[Path]] = {}
         for res in config.tiling.resolutions:
-            result[res] = self.build_tiles_for_records(vessels, aircraft, res)
+            result[res] = self.build_tiles_for_records(vessels, aircraft, res, region_key)
         return result
 
-    def _tile_path(self, cell_id: str, resolution: int, temporal_bin: str) -> Path:
-        """Compute the file path for a tile."""
-        return self._output_dir / str(resolution) / cell_id / f"{temporal_bin}.json"
+    def _tile_path(
+        self, region_key: str, cell_id: str, resolution: int, temporal_bin: str
+    ) -> Path:
+        """Compute the file path for a tile (region-segmented)."""
+        return (
+            self._output_dir / region_key / str(resolution) / cell_id / f"{temporal_bin}.json"
+        )
 
-    def get_tile(self, cell_id: str, resolution: int, temporal_bin: str) -> TileContent | None:
+    def get_tile(
+        self, region_key: str, cell_id: str, resolution: int, temporal_bin: str
+    ) -> TileContent | None:
         """Read a tile from disk, if it exists."""
-        path = self._tile_path(cell_id, resolution, temporal_bin)
+        path = self._tile_path(region_key, cell_id, resolution, temporal_bin)
         if not path.exists():
             return None
         try:
@@ -194,16 +210,28 @@ class TileBuilder:
             return None
 
     def list_tiles(self, resolution: int | None = None) -> list[Path]:
-        """List all tile files, optionally filtered by resolution."""
-        if resolution is not None:
-            search_dir = self._output_dir / str(resolution)
-            if not search_dir.exists():
-                return []
-            return list(search_dir.rglob("*.json"))
-        return list(self._output_dir.rglob("*.json"))
+        """List all tile files across the per-region layout.
+
+        Layout is <region_key>/<res>/<cell>/<bin>.json. Region trash dirs
+        (``<key>.trash-*``, transiently present during a background delete)
+        are excluded. Optionally filter by resolution across all regions.
+        """
+        tiles: list[Path] = []
+        if not self._output_dir.exists():
+            return tiles
+        for region_dir in self._output_dir.iterdir():
+            if not region_dir.is_dir() or ".trash-" in region_dir.name:
+                continue
+            if resolution is not None:
+                res_dir = region_dir / str(resolution)
+                if res_dir.is_dir():
+                    tiles.extend(res_dir.rglob("*.json"))
+            else:
+                tiles.extend(region_dir.rglob("*.json"))
+        return tiles
 
     def tile_stats(self) -> dict:
-        """Return statistics about tiles on disk."""
+        """Return statistics about tiles on disk (size-only; never opens files)."""
         all_tiles = self.list_tiles()
         if not all_tiles:
             return {"total": 0}

@@ -37,6 +37,7 @@ import argparse
 import asyncio
 import logging
 import os
+import shutil
 import signal
 import sys
 from pathlib import Path
@@ -66,7 +67,15 @@ async def run_pipeline(config: SpatialAgentsConfig) -> None:
     # Late imports to avoid circular dependencies
     from spatial_agents.ingest.feed_manager import FeedManager
     from spatial_agents.regions import RegionsManager
+    from spatial_agents.spatial.temporal_bins import TemporalBinner
     from spatial_agents.spatial.tile_builder import TileBuilder
+    from spatial_agents.spatial.tile_reaper import (
+        find_trash_dirs,
+        migrate_flat_tree,
+        reap_expired_tiles,
+        trash_region,
+    )
+    from spatial_agents.config import ACTIVE_REGIONS, REGION_CELLS, REGION_RESOLUTION
     from spatial_agents.serving.routes_api import set_feed_manager as set_api_feeds
     from spatial_agents.serving.routes_health import (
         set_feed_manager as set_health_feeds,
@@ -114,11 +123,124 @@ async def run_pipeline(config: SpatialAgentsConfig) -> None:
 
     # Register tile-building callback on new records
     def on_new_data_batch() -> None:
-        """Triggered periodically to rebuild tiles from latest data."""
+        """Rebuild tiles from latest data, partitioned per region.
+
+        The feed buffers commingle every active region. We split each batch by
+        the region whose 7-hex flower (REGION_CELLS[...]['all']) contains the
+        record's res-4 cell — the same membership test FeedManager uses to purge
+        on swap — and write each region's tiles under its own durable key, so
+        regions stay isolated on disk.
+        """
         vessels = feed_manager.get_latest_vessels()
         aircraft = feed_manager.get_latest_aircraft()
-        if vessels or aircraft:
-            tile_builder.build_all_resolutions(vessels, aircraft)
+        if not (vessels or aircraft):
+            return
+        for region in list(ACTIVE_REGIONS):
+            key = regions_manager.region_key(region)
+            cells = REGION_CELLS.get(region)
+            if key is None or cells is None:
+                continue
+            member = set(cells["all"])  # type: ignore[arg-type]
+            r_vessels = [v for v in vessels if v.h3_cells.get(REGION_RESOLUTION) in member]
+            r_aircraft = [a for a in aircraft if a.h3_cells.get(REGION_RESOLUTION) in member]
+            if r_vessels or r_aircraft:
+                tile_builder.build_all_resolutions(r_vessels, r_aircraft, region_key=key)
+
+    # --- Tile retention: 24 h reaper + async city-change cache clear ---------
+    # The H3 snapshot tree (data/tiles/h3) has no native eviction — left alone
+    # it fills the disk (see docs/DECISIONS-h3-archive.md). Two mechanisms keep
+    # it bounded; both do filesystem-only work (never open a tile).
+    binner = TemporalBinner()
+    bg_tasks: set[asyncio.Task] = set()
+
+    def _track(task: asyncio.Task) -> None:
+        """Hold a reference to a fire-and-forget task so it isn't GC'd."""
+        bg_tasks.add(task)
+        task.add_done_callback(bg_tasks.discard)
+
+    async def _background_rmtree(path: Path) -> None:
+        """Delete a (possibly huge) trash dir off the event loop. Failure logs."""
+        try:
+            await asyncio.to_thread(shutil.rmtree, path, ignore_errors=True)
+            logger.info("Background tile delete complete: %s", path.name)
+        except Exception as exc:  # pragma: no cover — defensive
+            logger.error("Background tile delete failed for %s: %s", path, exc)
+
+    async def on_city_change(old_region: str | None, new_region: str) -> None:
+        """Swap callback — surgically clear ONLY the departing region's tiles.
+
+        Per-region isolation means we set aside just `output_dir/<old_key>/`,
+        leaving every other region (e.g. SF in slot 0) untouched. A synchronous
+        rmtree over the subtree can block for a long time (many small files), so
+        we os.rename it to `<old_key>.trash-<utc>` (atomic, instant) and delete
+        in the background. The new city writes to its own `<new_key>/` subtree on
+        the next rebuild tick.
+        """
+        if old_region is None:
+            return
+        old_key = regions_manager.region_key(old_region)
+        if old_key is None:
+            return
+        try:
+            trash = await asyncio.to_thread(
+                trash_region, config.tiling.tile_output_dir, old_key
+            )
+        except Exception as exc:
+            logger.error(
+                "City-change tile clear failed (%s -> %s): %s",
+                old_region, new_region, exc,
+            )
+            return
+        if trash is not None:
+            logger.info(
+                "City change %s -> %s: region %s tiles set aside to %s, deleting in background",
+                old_region, new_region, old_key, trash.name,
+            )
+            _track(asyncio.create_task(_background_rmtree(trash)))
+
+    regions_manager.on_swap(on_city_change)
+
+    async def tile_reaper_loop() -> None:
+        """Periodically delete tiles whose temporal bin is older than the window."""
+        while True:
+            await asyncio.sleep(config.tiling.reaper_interval_seconds)
+            if config.tiling.retention_hours <= 0:
+                continue  # expiration disabled
+            try:
+                deleted = await asyncio.to_thread(
+                    reap_expired_tiles,
+                    config.tiling.tile_output_dir,
+                    config.tiling.retention_hours,
+                    binner,
+                )
+                if deleted:
+                    logger.info(
+                        "Tile reaper: deleted %d expired tiles (> %d h old)",
+                        deleted, config.tiling.retention_hours,
+                    )
+            except Exception as exc:
+                logger.error("Tile reaper error: %s", exc)
+
+    # One-time migration: if the on-disk tree is the legacy flat <res>/... layout
+    # (no region segment), set the whole thing aside so it rebuilds per-region.
+    # Disposable data — nothing reads tile contents — so we don't sort flat files
+    # into regions; we just instant-rename and background-delete.
+    migrate_trash = migrate_flat_tree(config.tiling.tile_output_dir)
+    if migrate_trash is not None:
+        logger.info(
+            "Migrating legacy flat tile tree to per-region layout — old tree set "
+            "aside to %s, deleting in background", migrate_trash.name,
+        )
+
+    # Startup cleanup: background-delete the migration trash plus any trash dirs
+    # left by a run killed mid-delete (surgical clears inside root, whole-tree
+    # renames beside it). Dedup so the migration trash isn't scheduled twice.
+    to_delete = set(find_trash_dirs(config.tiling.tile_output_dir))
+    if migrate_trash is not None:
+        to_delete.add(migrate_trash)
+    for leftover in sorted(to_delete):
+        logger.info("Startup: scheduling background delete of %s", leftover.name)
+        _track(asyncio.create_task(_background_rmtree(leftover)))
 
     # Start feeds
     logger.info("Starting data feeds...")
@@ -134,6 +256,7 @@ async def run_pipeline(config: SpatialAgentsConfig) -> None:
                 logger.error("Tile rebuild error: %s", exc)
 
     tile_task = asyncio.create_task(tile_rebuild_loop(), name="tile_rebuild")
+    reaper_task = asyncio.create_task(tile_reaper_loop(), name="tile_reaper")
 
     # Run server
     import uvicorn
@@ -150,6 +273,7 @@ async def run_pipeline(config: SpatialAgentsConfig) -> None:
         await server.serve()
     finally:
         tile_task.cancel()
+        reaper_task.cancel()
         await feed_manager.stop()
         logger.info("Pipeline shutdown complete")
 
