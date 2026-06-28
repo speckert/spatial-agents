@@ -113,8 +113,12 @@ size breakdown was deferred to avoid a `TileStatsResponse` model change (brief m
 ## Commit/push
 
 - **Branch:** `master`
-- **Commit:** _<hash + subject — filled in after commit>_
-- **Push:** _<result — filled in after push>_
+- **Commit:** `383549c` — feat(tiles): per-region tile cache keyed by center H3 cell; surgical
+  per-region clear + reaper; migrate flat tree; fix stale health-status feed count
+- **Push:** `486c549..383549c  master -> master` to `origin`
+  (https://github.com/speckert/spatial-agents.git) — succeeded.
+- _(Unrelated pre-existing working-tree changes `.claude/settings.local.json` and `docs/map.html`
+  were intentionally left out of this commit.)_
 
 ---
 
